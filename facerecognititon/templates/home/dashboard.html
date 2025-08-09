@@ -1,0 +1,131 @@
+{% extends "layout/base.html" %}
+{% load static %}
+{% block main_content %}
+
+<div class="p-6 bg-gray-100 min-h-screen">
+  <!-- Header -->
+  <div class="mb-6">
+    <h1 class="text-3xl font-bold text-gray-800 animate-fade-in">Criminal Analytics Dashboard</h1>
+    <p class="text-gray-600 mt-1">Facial Recognition-Based Crime Detection - GCTU Campus</p>
+  </div>
+
+  <!-- Summary Cards -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 animate-fade-up">
+    {% for stat in stats %}
+      <div class="bg-white p-4 rounded-2xl shadow hover:shadow-xl transform hover:scale-105 transition-all duration-300">
+        <h2 class="text-lg font-semibold text-gray-700">{{ stat.label }}</h2>
+        <p class="text-2xl font-bold text-blue-600">{{ stat.count }}</p>
+      </div>
+    {% endfor %}
+  </div>
+
+  <!-- Charts -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6 animate-fade-up delay-200">
+    <div class="bg-white rounded-2xl p-6 shadow">
+      <h2 class="text-lg font-bold mb-4">Criminal Status Distribution</h2>
+      <canvas id="statusChart"></canvas>
+    </div>
+
+    <div class="bg-white rounded-2xl p-6 shadow">
+      <h2 class="text-lg font-bold mb-4">Sightings Over Time</h2>
+      <canvas id="sightingsChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Recent Sightings Table -->
+  <div class="bg-white mt-8 p-6 rounded-2xl shadow animate-fade-up delay-300">
+    <h2 class="text-lg font-bold mb-4">Recent Sightings</h2>
+    <div class="overflow-auto">
+      <table class="table-auto w-full text-left">
+        <thead>
+          <tr class="text-sm text-gray-700 border-b">
+            <th class="p-2">Name</th>
+            <th class="p-2">Location</th>
+            <th class="p-2">Time</th>
+            <th class="p-2">Image</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for sighting in recent_sightings %}
+          <tr class="border-b hover:bg-gray-50">
+            <td class="p-2">{{ sighting.criminal.full_name }}</td>
+            <td class="p-2">{{ sighting.spotted_address }}</td>
+            <td class="p-2">{{ sighting.timestamp|date:"M d, Y H:i" }}</td>
+            <td class="p-2">
+              {% if sighting.image_captured %}
+                <img src="{{ sighting.image_captured.url }}" class="w-10 h-10 rounded-full object-cover">
+              {% else %}
+                N/A
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Recent Files -->
+  <div class="bg-white mt-8 p-6 rounded-2xl shadow animate-fade-up delay-400">
+    <h2 class="text-lg font-bold mb-4">Recent Evidence Files</h2>
+    <ul class="list-disc ml-5 text-gray-700">
+      {% for file in recent_files %}
+        <li>{{ file.remark }} - {{ file.timestamp|date:"M d, Y H:i" }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+
+<!-- ChartJS -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  const statusChart = new Chart(document.getElementById('statusChart'), {
+    type: 'doughnut',
+    data: {
+      labels: {{ status_labels|safe }},
+      datasets: [{
+        label: 'Status',
+        data: {{ status_data|safe }},
+        backgroundColor: ['#f87171', '#60a5fa', '#facc15', '#34d399'],
+      }]
+    }
+  });
+
+  const sightingsChart = new Chart(document.getElementById('sightingsChart'), {
+    type: 'bar',
+    data: {
+      labels: {{ sightings_dates|safe }},
+      datasets: [{
+        label: 'Sightings',
+        data: {{ sightings_counts|safe }},
+        backgroundColor: '#3b82f6',
+      }]
+    }
+  });
+</script>
+
+<style>
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate-fade-in {
+    animation: fade-in 0.8s ease forwards;
+  }
+
+  .animate-fade-up {
+    animation: fade-up 1s ease forwards;
+  }
+
+  .delay-200 { animation-delay: 0.2s; }
+  .delay-300 { animation-delay: 0.3s; }
+  .delay-400 { animation-delay: 0.4s; }
+</style>
+
+{% endblock %}

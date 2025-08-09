@@ -1,0 +1,15 @@
+version: '3.9'
+
+services:
+  web:
+    build: .
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+
+    devices:
+      - "/dev/video0:/dev/video0"
+    # Optionally, include these for better debugging
+    stdin_open: true
+    tty: true

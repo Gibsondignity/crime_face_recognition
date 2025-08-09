@@ -1,0 +1,134 @@
+{% extends "layout/base.html" %}
+{% load static %}
+{% block main_content %}
+
+<div class="min-h-screen px-6 py-10 bg-gray-100">
+  <div class="max-w-6xl mx-auto bg-white rounded-xl shadow-lg p-6 animate-fade-in">
+    <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">All Criminals</h2>
+
+    {% if messages %}
+      <div class="mb-4">
+        {% for message in messages %}
+          <div class="p-4 rounded-md bg-green-100 text-green-800">
+            {{ message }}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <div class="overflow-x-auto">
+      <table id="criminalTable" class="table-auto w-full text-sm text-left text-gray-700 border border-gray-200">
+        <thead class="bg-gray-200 text-gray-800 uppercase text-xs font-semibold">
+          <tr>
+            <th class="px-4 py-2">Name</th>
+            <th class="px-4 py-2">National ID</th>
+            <th class="px-4 py-2">Address</th>
+            <th class="px-4 py-2">Status</th>
+            <th class="px-4 py-2">Action</th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+          {% for criminal in criminals %}
+          <tr class="hover:bg-gray-50 transition duration-150">
+            <td class="px-4 py-2">{{ criminal.full_name }}</td>
+            <td class="px-4 py-2">{{ criminal.national_id }}</td>
+            <td class="px-4 py-2">{{ criminal.address }}</td>
+            <!-- Status Display Badge -->
+            <td class="px-4 py-2">
+              <span class="px-3 py-1 rounded-full text-xs font-semibold
+                {% if criminal.status == 'wanted' %}
+                  bg-red-200 text-red-800
+                {% elif criminal.status == 'arrested' %}
+                  bg-yellow-200 text-yellow-800
+                {% elif criminal.status == 'under_investigation' %}
+                  bg-blue-200 text-blue-800
+                {% elif criminal.status == 'released' %}
+                  bg-green-200 text-green-800
+                {% endif %}
+              ">
+                {{ criminal.get_status_display }}
+              </span>
+            </td>
+
+            <!-- Action Button -->
+            <td class="px-4 py-2">
+              {% if criminal.status == 'wanted' %}
+                <a href="#" class="change-status-btn text-white bg-yellow-500 hover:bg-yellow-600 px-3 py-1 rounded-lg transition duration-200"
+                   data-id="{{ criminal.id }}" data-status="arrested">Mark Arrested</a>
+              {% elif criminal.status == 'arrested' %}
+                <a href="#" class="change-status-btn text-white bg-blue-500 hover:bg-blue-600 px-3 py-1 rounded-lg transition duration-200"
+                   data-id="{{ criminal.id }}" data-status="under_investigation">Mark Under Investigation</a>
+              {% elif criminal.status == 'under_investigation' %}
+                <a href="#" class="change-status-btn text-white bg-green-500 hover:bg-green-600 px-3 py-1 rounded-lg transition duration-200"
+                   data-id="{{ criminal.id }}" data-status="released">Mark Released</a>
+              {% elif criminal.status == 'released' %}
+                <a href="#" class="change-status-btn text-white bg-red-500 hover:bg-red-600 px-3 py-1 rounded-lg transition duration-200"
+                   data-id="{{ criminal.id }}" data-status="wanted">Mark Wanted</a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<style>
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .animate-fade-in {
+    animation: fade-in 0.5s ease-out;
+  }
+</style>
+
+{% endblock %}
+
+{% block js_content %}
+
+<script>
+  $(document).ready(function () {
+    $('#criminalTable').DataTable({
+      responsive: true,
+      language: {
+        search: "_INPUT_",
+        searchPlaceholder: "Search criminals..."
+      }
+    });
+  });
+</script>
+
+
+<script>
+  $(document).ready(function () {
+    $(".change-status-btn").click(function (e) {
+      e.preventDefault();
+      const btn = $(this);
+      const citizenId = btn.data("id");
+      const newStatus = btn.data("status");
+
+      $.ajax({
+        url: "{% url 'change_criminal_status' %}",
+        type: "POST",
+        data: {
+          'citizen_id': citizenId,
+          'new_status': newStatus,
+          'csrfmiddlewaretoken': '{{ csrf_token }}'
+        },
+        success: function (response) {
+          if (response.success) {
+            location.reload(); // or update DOM if you want it dynamic
+          } else {
+            alert(response.message || "Failed to change status.");
+          }
+        },
+        error: function () {
+          alert("An error occurred while changing the status.");
+        }
+      });
+    });
+  });
+</script>
+{% endblock %}
