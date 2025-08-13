@@ -2,10 +2,11 @@ from django.core.files.storage import FileSystemStorage
 from django.shortcuts import render, HttpResponse, redirect, get_object_or_404
 from django.contrib import messages
 import bcrypt
-import face_recognition
-from PIL import Image, ImageDraw
+import insightface
+from insightface.app import FaceAnalysis
 import numpy as np
 import cv2
+from PIL import Image, ImageDraw, ImageFont
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
@@ -24,7 +25,13 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 
 
+
+
 User = get_user_model()
+
+# Initialize InsightFace model (detection + recognition)
+face_app = FaceAnalysis(providers=['CPUExecutionProvider'])
+face_app.prepare(ctx_id=0, det_size=(640, 640))
 
 class FileView(APIView):
   parser_classes = (MultiPartParser, FormParser)
@@ -206,47 +213,77 @@ def detect_image(request):
         filename = fs.save(myfile.name, myfile)
         uploaded_file_path = fs.path(filename)
 
-        # Load criminals
-        known_face_encodings = []
-        known_face_names = []
+        # Load known criminals
+        known_embeddings = []
+        known_names = []
 
         for criminal in Criminal.objects.all():
             try:
-                image = face_recognition.load_image_file(criminal.profile_picture.path)
-                encoding = face_recognition.face_encodings(image)
-                if encoding:
-                    known_face_encodings.append(encoding[0])
-                    known_face_names.append(f"{criminal.full_name} ({criminal.address})")
+                img = cv2.imread(criminal.profile_picture.path)
+                if img is None:
+                    continue
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                faces = face_app.get(img)
+                if len(faces) > 0:
+                    embedding = faces[0].normed_embedding
+                    known_embeddings.append(embedding)
+                    known_names.append(f"{criminal.full_name} ({criminal.address})")
             except Exception as e:
                 print(f"Error loading criminal face: {e}")
                 continue
 
-        unknown_image = face_recognition.load_image_file(uploaded_file_path)
-        face_locations = face_recognition.face_locations(unknown_image)
-        face_encodings = face_recognition.face_encodings(unknown_image, face_locations)
+        # Load uploaded image
+        unknown_img = cv2.imread(uploaded_file_path)
+        if unknown_img is None:
+            messages.error(request, "Could not read uploaded image.")
+            return redirect('identify_criminal')
 
-        pil_image = Image.fromarray(unknown_image)
+        unknown_img_rgb = cv2.cvtColor(unknown_img, cv2.COLOR_BGR2RGB)
+        faces = face_app.get(unknown_img_rgb)
+
+        # Convert to PIL for drawing
+        pil_image = Image.fromarray(unknown_img_rgb)
         draw = ImageDraw.Draw(pil_image)
 
-        found = False  # Track if any match was found
+        found = False
 
-        for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
+        for face in faces:
+            bbox = face.bbox.astype(int)
+            left, top, right, bottom = bbox[0], bbox[1], bbox[2], bbox[3]
+            embedding = face.normed_embedding
+
             name = "Unknown"
-            if known_face_encodings:
-                face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
-                best_match_index = np.argmin(face_distances)
-                matches = face_recognition.compare_faces(known_face_encodings, face_encoding)
-                if matches[best_match_index]:
-                    name = known_face_names[best_match_index]
+
+            # Compare with known faces
+            if known_embeddings:
+                distances = []
+                for known_emb in known_embeddings:
+                    dist = np.linalg.norm(known_emb - embedding)
+                    distances.append(dist)
+                min_dist = min(distances)
+                best_match_idx = np.argmin(distances)
+
+                # Threshold for matching (InsightFace uses ~0.6-0.7 for similarity)
+                if min_dist < 0.6:  # Adjust based on your accuracy needs
+                    name = known_names[best_match_idx]
                     found = True
 
-            draw.rectangle(((left, top), (right, bottom)), outline=(0, 0, 255))
-            text_width, text_height = draw.textsize(name)
+            # Draw bounding box and label
+            draw.rectangle(((left, top), (right, bottom)), outline=(0, 0, 255), width=2)
+            try:
+                # Use default PIL font or specify a font
+                font = ImageFont.load_default()
+            except:
+                font = None
+            text_width, text_height = draw.textsize(name, font=font)
             draw.rectangle(((left, bottom - text_height - 10), (right, bottom)), fill=(0, 0, 255))
-            draw.text((left + 6, bottom - text_height - 5), name, fill=(255, 255, 255, 255))
+            draw.text((left + 6, bottom - text_height - 5), name, fill=(255, 255, 255), font=font)
 
         del draw
-        pil_image.show()
+
+        # Save the result image (optional)
+        result_path = uploaded_file_path.replace('.', '_result.')
+        pil_image.save(result_path)
 
         # Show message
         if found:
@@ -262,102 +299,88 @@ def detect_image(request):
 
 # View to detect criminals using webcam
 def detect_with_webcam(request):
-    # Accessing the deafult camera of the system
     video_capture = cv2.VideoCapture(0)
     if not video_capture.isOpened():
-            return HttpResponse("Webcam not accessible in Docker container", status=500)
+        messages.error(request, "Could not access webcam.")
+        return redirect('identify_criminal')
 
-    # Loading faces from DB with their data.
-    images=[]
-    encodings=[]
-    names=[]
-    files=[]
-    nationalIds=[]
+    # Load known criminals (embeddings, names, national IDs)
+    known_embeddings = []
+    known_names = []
+    known_national_ids = []
 
-    prsn=Criminal.objects.all()
-    for criminal in prsn:
-        images.append(criminal.full_name+'_image')
-        encodings.append(criminal.full_name+'_face_encoding')
-        files.append(criminal.profile_picture.path)
-        names.append('Name: '+criminal.full_name+ ', AadharNo: '+ criminal.national_id+', Address '+criminal.address)
-        nationalIds.append(criminal.national_id)
+    criminals = Criminal.objects.all()
+    for criminal in criminals:
+        try:
+            img = cv2.imread(criminal.profile_picture.path)
+            if img is None:
+                continue
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            faces = face_app.get(img)
+            if len(faces) > 0:
+                known_embeddings.append(faces[0].normed_embedding)
+                full_info = f"Name: {criminal.full_name}, AadharNo: {criminal.national_id}"
+                known_names.append(full_info)
+                known_national_ids.append(criminal.national_id)
+        except Exception as e:
+            print(f"Error loading criminal {criminal.full_name}: {e}")
 
-    #finding encoding of the criminals
-    for i in range(0,len(images)):
-        images[i]=face_recognition.load_image_file(files[i])
-        encodings[i]=face_recognition.face_encodings(images[i])[0]
-
-
-    # Encoding of faces and their respective ids and names
-    known_face_encodings = encodings
-    known_face_names = names
-    n_id = nationalIds
-
-
+    print("Webcam active. Press 'q' to quit.")  # Console message only
 
     while True:
-        # Reading a single frame of the video
         ret, frame = video_capture.read()
+        if not ret:
+            break
 
-        # converting color channel from RBG to BRG 
-        rgb_frame = frame[:, :, ::-1]
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        faces = face_app.get(rgb_frame)
 
-        # Finding all the faces and face enqcodings in the frame of video
-        face_locations = face_recognition.face_locations(rgb_frame)
-        face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
-
-        # Run a loop through each face in this frame of video
-        for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
-          
-           # checking if the faces in the frame matches to that from our DB
-            matches = face_recognition.compare_faces(known_face_encodings, face_encoding)
+        for face in faces:
+            bbox = face.bbox.astype(int)
+            left, top, right, bottom = bbox[0], bbox[1], bbox[2], bbox[3]
+            embedding = face.normed_embedding
 
             name = "Unknown"
 
-            # finding distance of the faces in the frame to that from our DB
-            face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
-            best_match_index = np.argmin(face_distances)
-            
-            #if it matches with the one with minimum distance then print their name on the frame
-            if matches[best_match_index]:
-                ntnl_id = n_id[best_match_index]
-                criminal = Criminal.objects.filter(national_id=ntnl_id)
-                name = known_face_names[best_match_index]+', Status: '+criminal.get().status
+            if known_embeddings:
+                distances = [np.linalg.norm(emb - embedding) for emb in known_embeddings]
+                min_dist = min(distances)
+                best_idx = np.argmin(distances)
 
+                if min_dist < 0.6:
+                    national_id = known_national_ids[best_idx]
+                    criminal_obj = Criminal.objects.get(national_id=national_id)
+                    name = f"{criminal_obj.full_name} - {criminal_obj.status}"
 
-                # if the face is of a wanted criminal then add it to CriminalLastSpotted list
-                if(not(criminal.get().status=='released')):
-                    thief = CriminalLastSpotted.objects.create(
-                        name=criminal.get().full_name,
-                        national_id=criminal.get().national_id,
-                        address=criminal.get().address,
-                        picture=criminal.get().profile_picture,
-                        status=criminal.get().status,
-                        latitude='25.3176° N',
-                        longitude='82.9739° E'
-                    )
-                    thief.save()
+                    if criminal_obj.status != 'released':
+                        CriminalLastSpotted.objects.create(
+                            name=criminal_obj.full_name,
+                            national_id=criminal_obj.national_id,
+                            address=criminal_obj.address,
+                            picture=criminal_obj.profile_picture,
+                            status=criminal_obj.status,
+                            latitude='25.3176° N',
+                            longitude='82.9739° E'
+                        )
 
-
-
-            # Drawing Rectangular box around the face(s)
+            # Draw rectangle and text on frame (optional, for debug)
             cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 255), 2)
-
-            # Put a label of their name 
             cv2.rectangle(frame, (left, bottom - 35), (right, bottom), (0, 0, 255), cv2.FILLED)
-            font = cv2.FONT_HERSHEY_DUPLEX
-            cv2.putText(frame, name, (left + 6, bottom - 6), font, 1.0, (255, 255, 255), 1)
+            cv2.putText(frame, name, (left + 6, bottom - 6),
+                        cv2.FONT_HERSHEY_DUPLEX, 0.6, (255, 255, 255), 1)
 
-        # Now display their faces with frames
-        cv2.imshow('Video', frame)
+        # ❌ Remove this line to avoid GUI error
+        # cv2.imshow('Video', frame)
 
-        # To quit the webcam detect enter 'q'
+        # Check for 'q' keypress using waitKey
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
-    # Now release the webcam
+    # Release resources
     video_capture.release()
-    cv2.destroyAllWindows()
+    cv2.destroyAllWindows()  # Safe to call even if no window was created
+
+    messages.info(request, "Webcam session ended.")
     return redirect('identify_criminal')
 
 
