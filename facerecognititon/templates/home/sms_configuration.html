@@ -1,0 +1,193 @@
+{% extends "layout/base.html" %}
+{% load static %}
+{% block main_content %}
+
+<div class="px-6 py-8 bg-gray-100 min-h-screen animate-fade-in">
+  {% if messages %}
+    <div class="mb-4">
+      {% for message in messages %}
+        <div class="p-4 rounded-md {% if message.tags == 'error' %}bg-red-100 text-red-700{% else %}bg-green-100 text-green-700{% endif %}">
+          {{ message }}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <h2 class="text-3xl font-bold text-center mb-8 text-gray-800">SMS Alert Configuration</h2>
+
+  <div class="max-w-4xl mx-auto">
+    
+    <!-- Arkesel SMS Configuration -->
+    <div class="bg-white rounded-xl shadow-lg overflow-hidden mb-8">
+      <div class="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4">
+        <h3 class="text-xl font-semibold text-white flex items-center">
+          <i class="fas fa-cog mr-3"></i>Arkesel SMS Gateway Settings
+        </h3>
+      </div>
+      
+      <div class="p-6">
+        <form method="POST" action="{% url 'save_sms_configuration' %}">
+          {% csrf_token %}
+          
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label class="block text-gray-700 font-medium mb-2">API Key *</label>
+              <input type="password" name="api_key" 
+                     value="{% if config %}{{ config.api_key }}{% endif %}"
+                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                     placeholder="Enter your Arkesel API Key" required>
+              <p class="text-xs text-gray-500 mt-1">Get your API key from <a href="https://developers.arkesel.com" target="_blank" class="text-blue-600 hover:underline">Arkesel Developer Portal</a></p>
+            </div>
+            
+            <div>
+              <label class="block text-gray-700 font-medium mb-2">Sender ID *</label>
+              <input type="text" name="sender_id" maxlength="11"
+                     value="{% if config %}{{ config.sender_id }}{% endif %}"
+                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                     placeholder="e.g., CriminalApp" required>
+              <p class="text-xs text-gray-500 mt-1">Maximum 11 characters</p>
+            </div>
+          </div>
+          
+          <div class="mt-6">
+            <h4 class="text-lg font-semibold text-gray-800 mb-4">Alert Settings</h4>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div class="space-y-4">
+                <label class="flex items-center">
+                  <input type="checkbox" name="send_alerts_enabled" class="form-checkbox h-5 w-5 text-blue-600"
+                         {% if not config or config.send_alerts_enabled %}checked{% endif %}>
+                  <span class="ml-2 text-gray-700">Enable SMS Alerts</span>
+                </label>
+                
+                <label class="flex items-center">
+                  <input type="checkbox" name="include_location" class="form-checkbox h-5 w-5 text-blue-600"
+                         {% if not config or config.include_location %}checked{% endif %}>
+                  <span class="ml-2 text-gray-700">Include Location in Alerts</span>
+                </label>
+                
+                <label class="flex items-center">
+                  <input type="checkbox" name="include_image_link" class="form-checkbox h-5 w-5 text-blue-600"
+                         {% if not config or config.include_image_link %}checked{% endif %}>
+                  <span class="ml-2 text-gray-700">Include Captured Image Link</span>
+                </label>
+              </div>
+              
+              <div>
+                <label class="block text-gray-700 font-medium mb-2">Alert Delay (minutes)</label>
+                <input type="number" name="alert_delay_minutes" min="1" max="60"
+                       value="{% if config %}{{ config.alert_delay_minutes }}{% else %}5{% endif %}"
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                <p class="text-xs text-gray-500 mt-1">Minimum time between duplicate alerts for the same criminal</p>
+              </div>
+            </div>
+          </div>
+          
+          <div class="flex justify-between mt-8">
+            <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition font-medium">
+              <i class="fas fa-save mr-2"></i>Save Configuration
+            </button>
+            
+            <a href="{% url 'alert_recipients' %}" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition font-medium inline-block">
+              <i class="fas fa-users mr-2"></i>Manage Recipients
+            </a>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Test SMS Section -->
+    <div class="bg-white rounded-xl shadow-lg overflow-hidden mb-8">
+      <div class="bg-gradient-to-r from-green-600 to-green-700 px-6 py-4">
+        <h3 class="text-xl font-semibold text-white flex items-center">
+          <i class="fas fa-paper-plane mr-3"></i>Test SMS Service
+        </h3>
+      </div>
+      
+      <div class="p-6">
+        <form method="POST" action="{% url 'test_sms_service' %}">
+          {% csrf_token %}
+          
+          <div class="flex items-end space-x-4">
+            <div class="flex-1">
+              <label class="block text-gray-700 font-medium mb-2">Test Phone Number</label>
+              <input type="tel" name="test_phone" 
+                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none"
+                     placeholder="+233123456789" required>
+              <p class="text-xs text-gray-500 mt-1">Enter phone number in international format</p>
+            </div>
+            
+            <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition font-medium">
+              <i class="fas fa-paper-plane mr-2"></i>Send Test
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Current Status -->
+    <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+      <div class="bg-gradient-to-r from-gray-600 to-gray-700 px-6 py-4">
+        <h3 class="text-xl font-semibold text-white flex items-center">
+          <i class="fas fa-info-circle mr-3"></i>Current Status
+        </h3>
+      </div>
+      
+      <div class="p-6">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div class="text-center">
+            <div class="text-2xl font-bold {% if config and config.is_active %}text-green-600{% else %}text-red-600{% endif %}">
+              {% if config and config.is_active %}
+                <i class="fas fa-check-circle"></i> Active
+              {% else %}
+                <i class="fas fa-times-circle"></i> Inactive
+              {% endif %}
+            </div>
+            <p class="text-gray-600 text-sm">SMS Service Status</p>
+          </div>
+          
+          <div class="text-center">
+            <div class="text-2xl font-bold {% if config and config.send_alerts_enabled %}text-green-600{% else %}text-red-600{% endif %}">
+              {% if config and config.send_alerts_enabled %}
+                <i class="fas fa-bell"></i> Enabled
+              {% else %}
+                <i class="fas fa-bell-slash"></i> Disabled
+              {% endif %}
+            </div>
+            <p class="text-gray-600 text-sm">Alert Notifications</p>
+          </div>
+          
+          <div class="text-center">
+            <div class="text-2xl font-bold text-blue-600">
+              <i class="fas fa-clock"></i> 
+              {% if config %}{{ config.alert_delay_minutes }}min{% else %}5min{% endif %}
+            </div>
+            <p class="text-gray-600 text-sm">Alert Delay</p>
+          </div>
+        </div>
+        
+        {% if config %}
+        <div class="mt-6 pt-4 border-t border-gray-200">
+          <div class="text-sm text-gray-600">
+            <p><strong>Last Updated:</strong> {{ config.updated_at|date:"M d, Y H:i" }}</p>
+            <p><strong>Sender ID:</strong> {{ config.sender_id }}</p>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<style>
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .animate-fade-in {
+    animation: fade-in 0.6s ease-out;
+  }
+</style>
+
+{% endblock %}
