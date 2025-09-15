@@ -25,7 +25,7 @@
       </div>
 
       <div>
-        <label class="block text-gray-700 font-medium mb-1">National ID</label>
+        <label class="block text-gray-700 font-medium mb-1">Student ID</label>
         <input type="text" name="national_id" required class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-400 focus:outline-none" />
       </div>
 
@@ -36,7 +36,33 @@
 
       <div>
         <label class="block text-gray-700 font-medium mb-1">Upload Picture</label>
-        <input type="file" name="profile_picture" accept="image/*" required class="w-full px-4 py-2 border border-gray-300 rounded-xl bg-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200" />
+        <input type="file" name="profile_picture" accept="image/*" required id="profilePictureInput" class="w-full px-4 py-2 border border-gray-300 rounded-xl bg-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200" />
+        
+        <!-- Image Preview and Quality Guidelines -->
+        <div id="imagePreviewContainer" class="mt-4 hidden">
+          <div class="border-2 border-dashed border-gray-300 rounded-xl p-4 bg-gray-50">
+            <img id="imagePreview" class="max-w-full max-h-64 mx-auto rounded-lg shadow-md" />
+            <div id="imageAnalysis" class="mt-3 text-sm">
+              <div class="flex items-center justify-center space-x-4">
+                <div id="imageSizeInfo" class="text-gray-600"></div>
+                <div id="faceDetectionStatus" class="font-medium"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Face Quality Guidelines -->
+        <div class="mt-3 p-4 bg-blue-50 rounded-lg border border-blue-200">
+          <h4 class="text-sm font-semibold text-blue-800 mb-2">📸 Photo Guidelines for Best Detection:</h4>
+          <ul class="text-xs text-blue-700 space-y-1">
+            <li>✓ Clear, well-lit frontal face photo</li>
+            <li>✓ Face should be at least 100x100 pixels</li>
+            <li>✓ No sunglasses or face coverings</li>
+            <li>✓ High resolution (recommended: 300+ pixels wide)</li>
+            <li>✓ Single person in the image</li>
+            <li>✗ Avoid blurry, dark, or side-angle photos</li>
+          </ul>
+        </div>
       </div>
 
       <div class="text-center">
@@ -58,4 +84,109 @@
   }
 </style>
 
+{% endblock %}
+
+{% block js_content %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const fileInput = document.getElementById('profilePictureInput');
+    const previewContainer = document.getElementById('imagePreviewContainer');
+    const imagePreview = document.getElementById('imagePreview');
+    const imageSizeInfo = document.getElementById('imageSizeInfo');
+    const faceDetectionStatus = document.getElementById('faceDetectionStatus');
+
+    fileInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) {
+            previewContainer.classList.add('hidden');
+            return;
+        }
+
+        // Validate file type
+        if (!file.type.startsWith('image/')) {
+            alert('Please select a valid image file.');
+            fileInput.value = '';
+            return;
+        }
+
+        // Check file size (max 10MB)
+        const maxSize = 10 * 1024 * 1024; // 10MB
+        if (file.size > maxSize) {
+            alert('File size is too large. Please select an image smaller than 10MB.');
+            fileInput.value = '';
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            imagePreview.src = e.target.result;
+            previewContainer.classList.remove('hidden');
+            
+            // Create a temporary image to get dimensions
+            const img = new Image();
+            img.onload = function() {
+                const width = img.width;
+                const height = img.height;
+                const fileSize = (file.size / 1024).toFixed(1);
+                
+                imageSizeInfo.textContent = `${width}x${height} pixels, ${fileSize}KB`;
+                
+                // Provide quality feedback
+                let qualityFeedback = '';
+                let qualityClass = '';
+                
+                if (width < 200 || height < 200) {
+                    qualityFeedback = '⚠️ Low Resolution - May affect detection accuracy';
+                    qualityClass = 'text-orange-600';
+                } else if (width < 400 || height < 400) {
+                    qualityFeedback = '✓ Good Resolution';
+                    qualityClass = 'text-yellow-600';
+                } else {
+                    qualityFeedback = '✓ Excellent Resolution';
+                    qualityClass = 'text-green-600';
+                }
+                
+                // Check aspect ratio
+                const aspectRatio = width / height;
+                if (aspectRatio < 0.7 || aspectRatio > 1.5) {
+                    qualityFeedback += ' - Consider cropping to focus on face';
+                    qualityClass = 'text-orange-600';
+                }
+                
+                faceDetectionStatus.textContent = qualityFeedback;
+                faceDetectionStatus.className = `font-medium ${qualityClass}`;
+                
+                // Additional file format feedback
+                if (file.type === 'image/jpeg' || file.type === 'image/png') {
+                    // Good formats
+                } else {
+                    qualityFeedback += ' - JPEG or PNG recommended';
+                    faceDetectionStatus.textContent = qualityFeedback;
+                    faceDetectionStatus.className = 'font-medium text-orange-600';
+                }
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
+
+    // Add form validation
+    const form = document.querySelector('form');
+    form.addEventListener('submit', function(e) {
+        const fileInput = document.getElementById('profilePictureInput');
+        if (!fileInput.files[0]) {
+            e.preventDefault();
+            alert('Please select a profile picture.');
+            return false;
+        }
+        
+        // Show loading state
+        const submitButton = form.querySelector('button[type="submit"]');
+        if (submitButton) {
+            submitButton.disabled = true;
+            submitButton.innerHTML = '<span class="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span>Processing...';
+        }
+    });
+});
+</script>
 {% endblock %}
