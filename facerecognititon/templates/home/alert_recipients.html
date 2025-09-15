@@ -1,0 +1,282 @@
+{% extends "layout/base.html" %}
+{% load static %}
+{% block main_content %}
+
+<div class="px-6 py-8 bg-gray-100 min-h-screen animate-fade-in">
+  {% if messages %}
+    <div class="mb-4">
+      {% for message in messages %}
+        <div class="p-4 rounded-md {% if message.tags == 'error' %}bg-red-100 text-red-700{% else %}bg-green-100 text-green-700{% endif %}">
+          {{ message }}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="flex justify-between items-center mb-8">
+    <h2 class="text-3xl font-bold text-gray-800">SMS Alert Recipients</h2>
+    <div class="space-x-4">
+      <a href="{% url 'sms_configuration' %}" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition inline-block">
+        <i class="fas fa-arrow-left mr-2"></i>Back to SMS Config
+      </a>
+      <button onclick="openAddRecipientModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition">
+        <i class="fas fa-plus mr-2"></i>Add Recipient
+      </button>
+    </div>
+  </div>
+
+  <!-- Recipients List -->
+  <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+    <div class="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4">
+      <h3 class="text-xl font-semibold text-white">Alert Recipients ({{ recipients.count }})</h3>
+    </div>
+    
+    <div class="overflow-x-auto">
+      {% if recipients %}
+      <table class="w-full">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Priority</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Alert Types</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+          {% for recipient in recipients %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-6 py-4 whitespace-nowrap">
+              <div class="font-medium text-gray-900">{{ recipient.name }}</div>
+              <div class="text-sm text-gray-500">Added {{ recipient.created_at|date:"M d, Y" }}</div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ recipient.phone_number }}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ recipient.department|default:"-" }}</td>
+            <td class="px-6 py-4 whitespace-nowrap">
+              <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full
+                {% if recipient.priority_level == 'high' %}bg-red-100 text-red-800
+                {% elif recipient.priority_level == 'medium' %}bg-yellow-100 text-yellow-800
+                {% else %}bg-green-100 text-green-800{% endif %}">
+                {{ recipient.get_priority_level_display }}
+              </span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+              <div class="flex space-x-1">
+                {% if recipient.alert_for_wanted %}<span class="bg-red-100 text-red-800 text-xs px-2 py-1 rounded">Wanted</span>{% endif %}
+                {% if recipient.alert_for_investigation %}<span class="bg-orange-100 text-orange-800 text-xs px-2 py-1 rounded">Investigation</span>{% endif %}
+                {% if recipient.alert_for_escaped %}<span class="bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded">Escaped</span>{% endif %}
+              </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+              <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full
+                {% if recipient.is_active %}bg-green-100 text-green-800{% else %}bg-gray-100 text-gray-800{% endif %}">
+                {% if recipient.is_active %}Active{% else %}Inactive{% endif %}
+              </span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+              <button onclick="editRecipient({{ recipient.id }})" class="text-blue-600 hover:text-blue-900">
+                <i class="fas fa-edit"></i> Edit
+              </button>
+              <button onclick="deleteRecipient({{ recipient.id }}, '{{ recipient.name }}')" class="text-red-600 hover:text-red-900">
+                <i class="fas fa-trash"></i> Delete
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="text-center py-12">
+        <i class="fas fa-users text-6xl text-gray-300 mb-4"></i>
+        <h3 class="text-lg font-medium text-gray-900 mb-2">No recipients found</h3>
+        <p class="text-gray-500 mb-4">Add your first SMS alert recipient to get started.</p>
+        <button onclick="openAddRecipientModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition">
+          <i class="fas fa-plus mr-2"></i>Add First Recipient
+        </button>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Recipient Modal -->
+<div id="recipientModal" class="fixed inset-0 hidden z-50 bg-black bg-opacity-50 flex items-center justify-center">
+  <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-2xl m-4 max-h-screen overflow-y-auto">
+    <div class="flex justify-between items-center mb-4">
+      <h2 id="modalTitle" class="text-lg font-semibold text-gray-700">Add New Recipient</h2>
+      <button onclick="closeRecipientModal()" class="text-gray-400 hover:text-gray-600">
+        <i class="fas fa-times text-xl"></i>
+      </button>
+    </div>
+    
+    <form method="POST" action="{% url 'save_alert_recipient' %}" id="recipientForm">
+      {% csrf_token %}
+      <input type="hidden" name="recipient_id" id="recipientId">
+      
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div>
+          <label class="block text-gray-700 font-medium mb-2">Name *</label>
+          <input type="text" name="name" id="recipientName" required
+                 class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none">
+        </div>
+        
+        <div>
+          <label class="block text-gray-700 font-medium mb-2">Phone Number *</label>
+          <input type="tel" name="phone_number" id="recipientPhone" required
+                 class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                 placeholder="+233123456789">
+        </div>
+      </div>
+      
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div>
+          <label class="block text-gray-700 font-medium mb-2">Department</label>
+          <input type="text" name="department" id="recipientDepartment"
+                 class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                 placeholder="e.g., Security, Police">
+        </div>
+        
+        <div>
+          <label class="block text-gray-700 font-medium mb-2">Priority Level</label>
+          <select name="priority_level" id="recipientPriority"
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            <option value="high">High Priority - Immediate alerts</option>
+            <option value="medium" selected>Medium Priority - Standard alerts</option>
+            <option value="low">Low Priority - Summary alerts only</option>
+          </select>
+        </div>
+      </div>
+      
+      <div class="mb-4">
+        <label class="block text-gray-700 font-medium mb-2">Alert Preferences</label>
+        <div class="space-y-2">
+          <label class="flex items-center">
+            <input type="checkbox" name="alert_for_wanted" id="alertWanted" checked
+                   class="form-checkbox h-4 w-4 text-blue-600">
+            <span class="ml-2 text-gray-700">Wanted Criminals</span>
+          </label>
+          
+          <label class="flex items-center">
+            <input type="checkbox" name="alert_for_investigation" id="alertInvestigation" checked
+                   class="form-checkbox h-4 w-4 text-blue-600">
+            <span class="ml-2 text-gray-700">Under Investigation</span>
+          </label>
+          
+          <label class="flex items-center">
+            <input type="checkbox" name="alert_for_escaped" id="alertEscaped" checked
+                   class="form-checkbox h-4 w-4 text-blue-600">
+            <span class="ml-2 text-gray-700">Escaped Criminals</span>
+          </label>
+        </div>
+      </div>
+      
+      <div class="mb-6">
+        <label class="flex items-center">
+          <input type="checkbox" name="is_active" id="recipientActive" checked
+                 class="form-checkbox h-4 w-4 text-blue-600">
+          <span class="ml-2 text-gray-700">Active (Receive alerts)</span>
+        </label>
+      </div>
+      
+      <div class="flex justify-end space-x-4">
+        <button type="button" onclick="closeRecipientModal()" 
+                class="px-4 py-2 bg-gray-300 rounded-lg hover:bg-gray-400 transition">Cancel</button>
+        <button type="submit" 
+                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+          <span id="submitButtonText">Add Recipient</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<style>
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .animate-fade-in {
+    animation: fade-in 0.6s ease-out;
+  }
+</style>
+
+{% endblock %}
+
+{% block js_content %}
+<script>
+let recipientData = {{ recipients|safe }};
+
+function openAddRecipientModal() {
+    document.getElementById('modalTitle').textContent = 'Add New Recipient';
+    document.getElementById('submitButtonText').textContent = 'Add Recipient';
+    document.getElementById('recipientForm').reset();
+    document.getElementById('recipientId').value = '';
+    document.getElementById('alertWanted').checked = true;
+    document.getElementById('alertInvestigation').checked = true;
+    document.getElementById('alertEscaped').checked = true;
+    document.getElementById('recipientActive').checked = true;
+    document.getElementById('recipientModal').classList.remove('hidden');
+}
+
+function editRecipient(id) {
+    // In a real implementation, you'd fetch recipient data via AJAX
+    // For now, we'll use a simple approach
+    document.getElementById('modalTitle').textContent = 'Edit Recipient';
+    document.getElementById('submitButtonText').textContent = 'Update Recipient';
+    document.getElementById('recipientId').value = id;
+    
+    // You would populate the form fields with existing data here
+    // This would typically be done via an AJAX call to fetch recipient details
+    
+    document.getElementById('recipientModal').classList.remove('hidden');
+}
+
+function closeRecipientModal() {
+    document.getElementById('recipientModal').classList.add('hidden');
+}
+
+function deleteRecipient(id, name) {
+    if (confirm(`Are you sure you want to delete recipient "${name}"? This action cannot be undone.`)) {
+        window.location.href = `/delete_recipient/${id}/`;
+    }
+}
+
+// Close modal when clicking outside
+document.getElementById('recipientModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeRecipientModal();
+    }
+});
+
+// Phone number formatting
+document.getElementById('recipientPhone').addEventListener('input', function(e) {
+    let value = e.target.value;
+    // Ensure it starts with +
+    if (!value.startsWith('+') && value.length > 0) {
+        e.target.value = '+' + value.replace(/^\+*/, '');
+    }
+});
+
+// Form validation
+document.getElementById('recipientForm').addEventListener('submit', function(e) {
+    const phone = document.getElementById('recipientPhone').value;
+    if (!phone.startsWith('+')) {
+        alert('Phone number must start with country code (e.g., +233)');
+        e.preventDefault();
+        return false;
+    }
+    
+    // Show loading state
+    const submitButton = document.getElementById('submitButtonText');
+    const originalText = submitButton.textContent;
+    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Saving...';
+    
+    // Re-enable button after 5 seconds in case of issues
+    setTimeout(() => {
+        submitButton.textContent = originalText;
+    }, 5000);
+});
+</script>
+{% endblock %}
