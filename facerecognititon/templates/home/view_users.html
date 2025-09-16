@@ -1,54 +1,126 @@
 {% extends "layout/base.html" %}
+{% load static %}
 {% block main_content %}
-    {% load static %}
-    <div class="main-content-inner">
-        <div class="row">
 
-            <div class="col-12 mt-5">
-                <div class="card">
-                    <div class="card-body">
-                        <h4 class="header-title">View Users</h4>
-                        {% if messages %}
-                            <div class="span12">
-                                {% for message in messages %}
-                                    <div class="alert alert-success">
-                                        {{ message|safe }}
-                                    </div>
-                                {% endfor %}
-                            </div>
-                        {% endif %}
-                        <div class="data-tables datatable-dark">
-                            <table id="dataTable3" class="text-center">
-                                <thead class="text-capitalize">
-                                <tr>
-                                    <th>Name</th>
-                                    <th>Surname</th>
-                                    <th>Police ID</th>
+<div class="min-h-screen px-6 py-10 bg-gray-100">
+  <div class="max-w-6xl mx-auto bg-white rounded-xl shadow-lg p-6 animate-fade-in">
+    <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">All Authorized Persons</h2>
 
-                                    <th>Joined Date</th>
-                                </tr>
-                                </thead>
-                                <tbody>
-                                {% for user in users %}
-                                    <tr>
-                                        <td>{{ user.first_name }}</td>
-                                        <td>{{ user.last_name }}</td>
-                                        <td>{{ user.email }}</td>
-                                        <td>{{ user.created_at }}</td>
+    {% if messages %}
+      <div class="mb-4">
+        {% for message in messages %}
+          <div class="p-4 rounded-md bg-green-100 text-green-800">
+            {{ message }}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
 
-                                        </td>
-                                    </tr>
-                                {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <!-- Dark table end -->
-        </div>
+    <div class="overflow-x-auto">
+      <table id="userTable" class="table-auto w-full text-sm text-left text-gray-700 border border-gray-200">
+        <thead class="bg-gray-200 text-gray-800 uppercase text-xs font-semibold">
+          <tr>
+            <th class="px-4 py-2">Name</th>
+            <th class="px-4 py-2">ID Number</th>
+            <th class="px-4 py-2">Department</th>
+            <th class="px-4 py-2">Role</th>
+            <th class="px-4 py-2">Status</th>
+            <th class="px-4 py-2">Action</th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+          {% for user in users %}
+          <tr class="hover:bg-gray-50 transition duration-150">
+            <td class="px-4 py-2">{{ user.name }}</td>
+            <td class="px-4 py-2">{{ user.id_number }}</td>
+            <td class="px-4 py-2">{{ user.department }}</td>
+            <td class="px-4 py-2">{{ user.get_role_display }}</td>
+            <!-- Status Display Badge -->
+            <td class="px-4 py-2">
+              <span class="px-3 py-1 rounded-full text-xs font-semibold
+                {% if user.is_active %}
+                  bg-green-200 text-green-800
+                {% else %}
+                  bg-red-200 text-red-800
+                {% endif %}
+              ">
+                {% if user.is_active %}Active{% else %}Inactive{% endif %}
+              </span>
+            </td>
+
+            <!-- Action Button -->
+            <td class="px-4 py-2">
+              {% if user.is_active %}
+                <a href="#" class="change-status-btn text-white bg-red-500 hover:bg-red-600 px-3 py-1 rounded-lg transition duration-200"
+                   data-id="{{ user.id }}" data-active="false">Deactivate</a>
+              {% else %}
+                <a href="#" class="change-status-btn text-white bg-green-500 hover:bg-green-600 px-3 py-1 rounded-lg transition duration-200"
+                   data-id="{{ user.id }}" data-active="true">Activate</a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
+  </div>
+</div>
+
+<style>
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .animate-fade-in {
+    animation: fade-in 0.5s ease-out;
+  }
+</style>
+
 {% endblock %}
+
 {% block js_content %}
-    <script src="{% static  'assets/js/vendor/jquery-2.2.4.min.js' %}"></script>
+
+<script>
+  $(document).ready(function () {
+    $('#userTable').DataTable({
+      responsive: true,
+      language: {
+        search: "_INPUT_",
+        searchPlaceholder: "Search users..."
+      }
+    });
+  });
+</script>
+
+
+<script>
+  $(document).ready(function () {
+    $(".change-status-btn").click(function (e) {
+      e.preventDefault();
+      const btn = $(this);
+      const userId = btn.data("id");
+      const isActive = btn.data("active");
+
+      $.ajax({
+        url: "{% url 'change_user_status' %}",
+        type: "POST",
+        data: {
+          'user_id': userId,
+          'is_active': isActive,
+          'csrfmiddlewaretoken': '{{ csrf_token }}'
+        },
+        success: function (response) {
+          if (response.success) {
+            location.reload(); // or update DOM if you want it dynamic
+          } else {
+            alert(response.message || "Failed to change status.");
+          }
+        },
+        error: function () {
+          alert("An error occurred while changing the status.");
+        }
+      });
+    });
+  });
+</script>
 {% endblock %}
