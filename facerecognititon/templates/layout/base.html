@@ -4,10 +4,12 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Criminal Identification - Campus</title>
+        <title>Access Control System - GCTU Campus</title>
       
         <!-- ✅ Correct Tailwind CDN -->
         <script src="https://cdn.tailwindcss.com"></script>
+        <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.7/dist/htmx.min.js"></script>
+
       
         <!-- Alpine.js for interactivity -->
         <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.12.0/dist/cdn.min.js" defer></script>
@@ -65,7 +67,7 @@
             <div class="flex justify-between items-center py-4">
               <div class="flex items-center space-x-4">
                 <img src="{% static 'assets/images/police/Cybercrime-Unit.jpg' %}" class="w-10 h-10 rounded-full" />
-                <h1 class="text-xl font-bold text-blue-700">Crime System - GCTU Campus</h1>
+                <h1 class="text-xl font-bold text-blue-700">Access Control - GCTU Campus</h1>
               </div>
               <div class="flex items-center space-x-4" x-data="{ open: false }">
                 <img src="{% static 'assets/images/author/avatar.jpg' %}" class="w-10 h-10 rounded-full cursor-pointer" @click="open = !open" />
@@ -88,10 +90,10 @@
           <aside class="w-64 bg-white shadow-md p-4 fade-in">
             <nav class="space-y-2 mt-6">
               <a href="{% url 'dashboard' %}" class="block py-2.5 px-4 rounded hover:bg-blue-100 transition">🏠 Dashboard</a>
-              <a href="{% url 'add_criminal' %}" class="block py-2.5 px-4 rounded hover:bg-blue-100 transition">➕ Add Criminal</a>
-              <a href="{% url 'view_criminals' %}" class="block py-2.5 px-4 rounded hover:bg-blue-100 transition">👁️ View Criminals</a>
-              <a href="{% url 'identify_criminal' %}" class="block py-2.5 px-4 rounded hover:bg-blue-100 transition">🧠 Identify Criminal</a>
-              <a href="{% url 'spotted_criminal' %}" class="block py-2.5 px-4 rounded hover:bg-blue-100 transition">📍 Track Criminal</a>
+              <a href="{% url 'add_user' %}" class="block py-2.5 px-4 rounded hover:bg-blue-100 transition">➕ Add User</a>
+              <a href="{% url 'view_users' %}" class="block py-2.5 px-4 rounded hover:bg-blue-100 transition">👁️ View Users</a>
+              <a href="{% url 'detect_unauthorized' %}" class="block py-2.5 px-4 rounded hover:bg-blue-100 transition">🧠 Detect Access</a>
+              <a href="{% url 'spotted_unauthorized' %}" class="block py-2.5 px-4 rounded hover:bg-blue-100 transition">📍 Track Incidents</a>
             </nav>
           </aside>
       
@@ -110,7 +112,7 @@
       
         <!-- Footer -->
         <footer class="bg-white shadow-md py-4 text-center text-sm text-gray-500">
-          Criminal Identification System using Face Recognition. Ghana Communication Technology University.
+          Access Control System using Face Recognition. Ghana Communication Technology University.
         </footer>
       
          <!-- jQuery and DataTables JS -->
