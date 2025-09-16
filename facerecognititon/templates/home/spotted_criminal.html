@@ -3,7 +3,7 @@
 
 {% block main_content %}
 <div class="px-6 py-8 bg-gray-100 min-h-screen animate-fade-in">
-  <h2 class="text-3xl font-bold mb-6 text-gray-800">Spotted Wanted Individuals</h2>
+  <h2 class="text-3xl font-bold mb-6 text-gray-800">Unauthorized Access Detections</h2>
 
   {% if messages %}
     <div class="mb-4">
@@ -21,31 +21,43 @@
         <tr class="bg-gray-800 text-white text-left">
           <th class="px-6 py-3">Photo</th>
           <th class="px-6 py-3">Name</th>
-          <th class="px-6 py-3">Student ID</th>
+          <th class="px-6 py-3">Area</th>
           <th class="px-6 py-3">Location</th>
-          <th class="px-6 py-3">Date Spotted</th>
+          <th class="px-6 py-3">Date Detected</th>
+          <th class="px-6 py-3">Status</th>
           <th class="px-6 py-3">Actions</th>
         </tr>
       </thead>
       <tbody>
-        {% for criminal in criminals %}
+        {% for detection in detections %}
         <tr class="border-t hover:bg-gray-100 transition duration-150">
           <td class="px-6 py-4">
-            {% if criminal.image_captured %}
-              <img src="{{ criminal.image_captured.url }}" alt="Spotted" class="w-16 h-16 object-cover rounded-full">
+            {% if detection.image_captured %}
+              <img src="{{ detection.image_captured.url }}" alt="Detected" class="w-16 h-16 object-cover rounded-full">
             {% else %}
               <span class="text-gray-500 italic">No Image</span>
             {% endif %}
           </td>
-          <td class="px-6 py-4">{{ criminal.criminal.full_name }}</td>
-          <td class="px-6 py-4">{{ criminal.criminal.national_id }}</td>
-          <td class="px-6 py-4">{{ criminal.spotted_address }}</td>
-          <td class="px-6 py-4">{{ criminal.timestamp|date:"M d, Y - H:i" }}</td>
+          <td class="px-6 py-4">{{ detection.detected_name|default:"Unknown Person" }}</td>
+          <td class="px-6 py-4">{{ detection.access_attempted }}</td>
+          <td class="px-6 py-4">{{ detection.detection_address }}</td>
+          <td class="px-6 py-4">{{ detection.timestamp|date:"M d, Y - H:i" }}</td>
           <td class="px-6 py-4">
-            <form method="post" action="{% url 'found_criminal' criminal.id %}">
-              {% csrf_token %}
-              <button class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition">Mark as Found</button>
-            </form>
+            {% if detection.handled %}
+              <span class="bg-green-100 text-green-800 px-2 py-1 rounded text-sm">Handled</span>
+            {% else %}
+              <span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-sm">Pending</span>
+            {% endif %}
+          </td>
+          <td class="px-6 py-4">
+            {% if not detection.handled %}
+              <form method="post" action="{% url 'mark_detection_handled' detection.id %}">
+                {% csrf_token %}
+                <button class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">Mark as Handled</button>
+              </form>
+            {% else %}
+              <span class="text-gray-500">Handled</span>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}
