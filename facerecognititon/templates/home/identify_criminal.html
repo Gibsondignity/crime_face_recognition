@@ -13,7 +13,7 @@
     </div>
   {% endif %}
 
-  <h2 class="text-3xl font-bold text-center mb-10 text-gray-800">Identify Criminal</h2>
+  <h2 class="text-3xl font-bold text-center mb-10 text-gray-800">Detect Unauthorized Access</h2>
 
   <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
     <!-- Upload Image Card -->
@@ -21,7 +21,7 @@
       <img src="{% static 'assets/images/card/camera_image.jpg' %}" alt="Upload Image" class="w-full h-56 object-cover">
       <div class="p-6">
         <h3 class="text-xl font-semibold text-gray-800 mb-2">Upload a Photo</h3>
-        <p class="text-gray-600 mb-4">Upload a picture and let the system check for a match with wanted individuals.</p>
+        <p class="text-gray-600 mb-4">Upload a picture and let the system check for authorized access or detect unauthorized individuals.</p>
         <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded transition" onclick="toggleModal('uploadModal')">Upload Picture</button>
       </div>
     </div>
@@ -31,7 +31,7 @@
       <img src="{% static 'assets/images/card/webcam_image.jpg' %}" alt="Use Webcam" class="w-full h-56 object-cover">
       <div class="p-6">
         <h3 class="text-xl font-semibold text-gray-800 mb-2">Use Webcam</h3>
-        <p class="text-gray-600 mb-4">Activate webcam to detect criminals in real-time like CCTV simulation.</p>
+        <p class="text-gray-600 mb-4">Activate webcam to detect unauthorized access in real-time like CCTV simulation.</p>
         <a href="{% url 'detect_with_webcam' %}" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded inline-block transition">Open Webcam</a>
       </div>
     </div>
@@ -41,7 +41,7 @@
 <!-- Modal -->
 <div id="uploadModal" class="fixed inset-0 hidden z-50 bg-black bg-opacity-50 flex items-center justify-center">
   <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-md transform transition-all duration-300 scale-95 opacity-0" id="modalContent">
-    <h2 class="text-lg font-semibold text-gray-700 mb-4">Upload Criminal Image</h2>
+    <h2 class="text-lg font-semibold text-gray-700 mb-4">Upload Image for Detection</h2>
     <form method="POST" action="{% url 'detect_image' %}" enctype="multipart/form-data">
       {% csrf_token %}
       <input type="file" name="image" class="mb-4 w-full border border-gray-300 rounded px-3 py-2" required>
