@@ -13,9 +13,9 @@ from rest_framework.response import Response
 from rest_framework import status
 from .serializers import FileSerializer
 from django.contrib.auth import logout
-from .models import User, Criminal, CriminalLastSpotted, File
+from .models import User, AuthorizedPerson, UnauthorizedDetection, File
 from django.contrib.auth import authenticate, login as auth_login
-from django.db.models import Count
+from django.db.models import Count, Avg
 from django.utils import timezone
 from datetime import timedelta
 from django.db.models.functions import TruncDate
@@ -45,19 +45,19 @@ class ArkeselSMSService:
         except:
             return None
     
-    def send_criminal_alert(self, criminal, sighting, captured_image_url=None):
-        """Send SMS alert for criminal detection"""
+    def send_unauthorized_alert(self, detection, captured_image_url=None):
+        """Send SMS alert for unauthorized access detection"""
         if not self.config or not self.config.send_alerts_enabled:
             return {'success': False, 'error': 'SMS alerts disabled or not configured'}
-        
-        # Get recipients based on criminal status
-        recipients = self.get_alert_recipients(criminal.status)
+
+        # Get recipients for unauthorized access alerts
+        recipients = self.get_alert_recipients()
         if not recipients:
             return {'success': False, 'error': 'No active recipients found'}
-        
+
         # Create alert message
-        message = self.create_alert_message(criminal, sighting, captured_image_url)
-        
+        message = self.create_alert_message(detection, captured_image_url)
+
         # Send SMS to all recipients
         results = []
         for recipient in recipients:
@@ -69,7 +69,7 @@ class ArkeselSMSService:
                 'message_id': result.get('message_id'),
                 'error': result.get('error')
             })
-        
+
         return {
             'success': True,
             'total_sent': len([r for r in results if r['success']]),
@@ -77,44 +77,35 @@ class ArkeselSMSService:
             'results': results
         }
     
-    def get_alert_recipients(self, criminal_status):
-        """Get recipients based on criminal status"""
-        recipients = AlertRecipient.objects.filter(is_active=True)
-        
-        # Filter based on criminal status preferences
-        if criminal_status == 'wanted':
-            recipients = recipients.filter(alert_for_wanted=True)
-        elif criminal_status == 'under_investigation':
-            recipients = recipients.filter(alert_for_investigation=True)
-        elif criminal_status == 'escaped':
-            recipients = recipients.filter(alert_for_escaped=True)
-        
+    def get_alert_recipients(self):
+        """Get recipients for unauthorized access alerts"""
+        recipients = AlertRecipient.objects.filter(is_active=True, alert_for_unauthorized=True)
         return recipients.order_by('priority_level')
     
-    def create_alert_message(self, criminal, sighting, captured_image_url=None):
-        """Create SMS alert message"""
-        timestamp = sighting.timestamp.strftime('%Y-%m-%d %H:%M:%S')
-        
-        message = f"🚨 CRIMINAL ALERT 🚨\n"
-        message += f"Name: {criminal.full_name}\n"
-        message += f"ID: {criminal.national_id}\n"
-        message += f"Status: {criminal.status.upper()}\n"
+    def create_alert_message(self, detection, captured_image_url=None):
+        """Create SMS alert message for unauthorized access"""
+        timestamp = detection.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+
+        message = f"🚨 UNAUTHORIZED ACCESS ALERT 🚨\n"
+        name = detection.detected_name or "Unknown Person"
+        message += f"Person: {name}\n"
+        message += f"Area: {detection.access_attempted}\n"
         message += f"Time: {timestamp}\n"
-        
+
         if self.config.include_location:
-            if sighting.camera_location:
-                message += f"Location: {sighting.camera_location}\n"
-            if sighting.latitude and sighting.longitude:
-                message += f"Coordinates: {sighting.latitude}, {sighting.longitude}\n"
-                if hasattr(sighting, 'google_maps_link'):
-                    message += f"Map: {sighting.google_maps_link}\n"
-        
+            if detection.camera_location:
+                message += f"Location: {detection.camera_location}\n"
+            if detection.latitude and detection.longitude:
+                message += f"Coordinates: {detection.latitude}, {detection.longitude}\n"
+                if hasattr(detection, 'google_maps_link'):
+                    message += f"Map: {detection.google_maps_link}\n"
+
         if captured_image_url and self.config.include_image_link:
             message += f"Image: {captured_image_url}\n"
-        
-        message += f"Confidence: {sighting.detection_confidence:.2f}\n" if sighting.detection_confidence else ""
-        message += "Take immediate action. Contact dispatch for details."
-        
+
+        message += f"Confidence: {detection.detection_confidence:.2f}\n" if detection.detection_confidence else ""
+        message += "Security team notified. Please investigate immediately."
+
         return message
     
     def send_sms(self, phone_number, message):
@@ -191,32 +182,45 @@ class ArkeselSMSService:
                 'error': f'Balance check error: {str(e)}'
             }
 
-def save_captured_image(frame, criminal_name, sighting_id):
-    """Save captured frame as evidence image"""
+def save_captured_image(frame, person_name, detection_id):
+    """Save captured frame as evidence image for unauthorized detection"""
     try:
         # Generate unique filename
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"detection_{criminal_name.replace(' ', '_')}_{timestamp}_{sighting_id}.jpg"
-        
+        filename = f"unauthorized_{person_name.replace(' ', '_')}_{timestamp}_{detection_id}.jpg"
+
         # Convert frame to JPEG
         ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
         if ret:
             image_content = ContentFile(buffer.tobytes(), name=filename)
             return image_content
     except Exception as e:
-        print(f"Error saving captured image: {e}")
-    
+        print(f"❌ Error saving captured image: {e}")
+
     return None
 
-def get_camera_location():
-    """Get camera location description (can be enhanced with GPS)"""
-    # This can be enhanced to get actual GPS coordinates
-    # For now, return a default location
+def get_camera_location(latitude=None, longitude=None):
+    """
+    Get camera location with GPS coordinates
+    Uses provided coordinates or defaults to campus location
+    """
+    if latitude and longitude:
+        # Use provided GPS coordinates
+        return {
+            'description': f'Security Camera at {latitude}, {longitude}',
+            'latitude': latitude,
+            'longitude': longitude,
+            'address': f'GPS Location: {latitude}, {longitude}',
+            'area_name': f'Area near {latitude}, {longitude}'
+        }
+
+    # Default campus location (can be enhanced with actual GPS from device)
     return {
-        'description': 'Security Camera - Main Entrance',
-        'latitude': 5.6037,  # Accra coordinates
+        'description': 'Security Camera - University Campus',
+        'latitude': 5.6037,  # Default Accra coordinates
         'longitude': -0.1870,
-        'address': 'University Campus, Accra, Ghana'
+        'address': 'University Campus, Accra, Ghana',
+        'area_name': 'Main Campus'
     }
 
 from datetime import datetime
@@ -225,7 +229,7 @@ import base64
 from skimage import exposure, filters
 from PIL import ImageEnhance
 
-def process_criminal_face(image_path, full_name):
+def process_authorized_face(image_path, full_name):
     """
     Advanced face processing function that extracts multiple embeddings
     and applies various image enhancement techniques for better accuracy
@@ -452,41 +456,125 @@ def login_view(request):
 def dashboard(request):
     # Stats section
     stats = [
-        {'label': 'Total Criminals', 'count': Criminal.objects.count()},
-        {'label': 'Wanted', 'count': Criminal.objects.filter(status='wanted').count()},
-        {'label': 'Arrested', 'count': Criminal.objects.filter(status='arrested').count()},
-        {'label': 'Under Investigation', 'count': Criminal.objects.filter(status='under_investigation').count()},
+        {'label': 'Total Authorized Persons', 'count': AuthorizedPerson.objects.count()},
+        {'label': 'Students', 'count': AuthorizedPerson.objects.filter(role='student').count()},
+        {'label': 'Staff', 'count': AuthorizedPerson.objects.filter(role='staff').count()},
+        {'label': 'Lecturers', 'count': AuthorizedPerson.objects.filter(role='lecturer').count()},
     ]
 
     # Pie chart data
-    status_qs = Criminal.objects.values('status').annotate(count=Count('id'))
-    status_labels = [x['status'].capitalize().replace('_', ' ') for x in status_qs]
-    status_data = [x['count'] for x in status_qs]
+    role_qs = AuthorizedPerson.objects.values('role').annotate(count=Count('id'))
+    role_labels = [x['role'].capitalize() for x in role_qs]
+    role_data = [x['count'] for x in role_qs]
 
-    # Sightings chart (last 7 days)
+    # Detections chart (last 7 days)
     past_week = timezone.now() - timedelta(days=7)
-    sightings = CriminalLastSpotted.objects.filter(timestamp__gte=past_week)
+    detections = UnauthorizedDetection.objects.filter(timestamp__gte=past_week)
 
-    sightings_by_day = (
-        sightings
+    detections_by_day = (
+        detections
         .annotate(day=TruncDate('timestamp'))  # Gives actual date objects
         .values('day')
         .annotate(count=Count('id'))
         .order_by('day')
     )
 
-    sightings_dates = [x['day'].strftime('%b %d') for x in sightings_by_day]
-    sightings_counts = [x['count'] for x in sightings_by_day]
+    detections_dates = [x['day'].strftime('%b %d') for x in detections_by_day]
+    detections_counts = [x['count'] for x in detections_by_day]
+
+    # Trend Analysis Data
+    # Hourly trends (last 24 hours)
+    past_24h = timezone.now() - timedelta(hours=24)
+    hourly_detections = (
+        UnauthorizedDetection.objects.filter(timestamp__gte=past_24h)
+        .annotate(hour=TruncDate('timestamp'))
+        .values('hour')
+        .annotate(count=Count('id'))
+        .order_by('hour')
+    )
+
+    # Access point trends
+    access_point_trends = (
+        UnauthorizedDetection.objects.all()
+        .values('access_attempted')
+        .annotate(count=Count('id'))
+        .order_by('-count')[:5]  # Top 5 access points
+    )
+
+    # Weekly trends (last 4 weeks)
+    past_4_weeks = timezone.now() - timedelta(weeks=4)
+    weekly_trends_raw = (
+        UnauthorizedDetection.objects.filter(timestamp__gte=past_4_weeks)
+        .annotate(week=TruncDate('timestamp'))
+        .values('week')
+        .annotate(count=Count('id'))
+        .order_by('week')
+    )
+
+    # Format weekly trends for chart
+    weekly_trends = []
+    for item in weekly_trends_raw:
+        weekly_trends.append({
+            'week': item['week'].strftime('%b %d'),
+            'count': item['count']
+        })
+
+    # Detection confidence trends
+    confidence_ranges = [
+        {'label': 'High (80-100%)', 'min': 0.8, 'max': 1.0, 'color': '#ef4444'},
+        {'label': 'Medium (60-79%)', 'min': 0.6, 'max': 0.8, 'color': '#f97316'},
+        {'label': 'Low (40-59%)', 'min': 0.4, 'max': 0.6, 'color': '#eab308'},
+        {'label': 'Very Low (<40%)', 'min': 0.0, 'max': 0.4, 'color': '#22c55e'},
+    ]
+
+    confidence_data = []
+    for conf_range in confidence_ranges:
+        count = UnauthorizedDetection.objects.filter(
+            detection_confidence__gte=conf_range['min'],
+            detection_confidence__lt=conf_range['max']
+        ).count()
+        confidence_data.append({
+            'label': conf_range['label'],
+            'count': count,
+            'color': conf_range['color']
+        })
+
+    # Recent trends comparison (this week vs last week)
+    this_week_start = timezone.now() - timedelta(days=timezone.now().weekday())
+    last_week_start = this_week_start - timedelta(days=7)
+    last_week_end = this_week_start
+
+    this_week_count = UnauthorizedDetection.objects.filter(
+        timestamp__gte=this_week_start
+    ).count()
+
+    last_week_count = UnauthorizedDetection.objects.filter(
+        timestamp__gte=last_week_start,
+        timestamp__lt=last_week_end
+    ).count()
+
+    trend_percentage = 0
+    if last_week_count > 0:
+        trend_percentage = ((this_week_count - last_week_count) / last_week_count) * 100
 
     # Context for template
     context = {
         'stats': stats,
-        'status_labels': status_labels,
-        'status_data': status_data,
-        'sightings_dates': sightings_dates,
-        'sightings_counts': sightings_counts,
-        'recent_sightings': sightings.order_by('-timestamp')[:5],
+        'status_labels': role_labels,
+        'status_data': role_data,
+        'sightings_dates': detections_dates,
+        'sightings_counts': detections_counts,
+        'recent_sightings': detections.order_by('-timestamp')[:5],
         'recent_files': File.objects.order_by('-timestamp')[:5],
+        # Trend data
+        'access_point_trends': list(access_point_trends),
+        'weekly_trends': list(weekly_trends),
+        'confidence_data': confidence_data,
+        'this_week_count': this_week_count,
+        'last_week_count': last_week_count,
+        'trend_percentage': trend_percentage,
+        'total_detections': UnauthorizedDetection.objects.count(),
+        'avg_confidence': UnauthorizedDetection.objects.aggregate(avg=Avg('detection_confidence'))['avg'] or 0,
     }
 
     return render(request, 'home/dashboard.html', context)
@@ -499,22 +587,23 @@ def logOut(request):
     return redirect("login")
 
 
-def add_criminal(request):
-    return render(request, 'home/add_criminal.html')
+def add_user(request):
+    return render(request, 'home/add_user.html')
 
-def save_criminal(request):
+def save_user(request):
     if request.method == 'POST':
-        national_id = request.POST.get("national_id")
-        full_name = request.POST.get("full_name")
-        address = request.POST.get("address")
+        id_number = request.POST.get("id_number")
+        name = request.POST.get("name")
+        department = request.POST.get("department")
+        role = request.POST.get("role", "student")
         profile_picture = request.FILES.get("profile_picture")
 
-        if Criminal.objects.filter(national_id=national_id).exists():
-            messages.error(request, "Criminal with that National ID already exists.")
-            return redirect('add_criminal')  # Fixed redirect
+        if AuthorizedPerson.objects.filter(id_number=id_number).exists():
+            messages.error(request, "Person with that ID already exists.")
+            return redirect('add_user')
         if not profile_picture:
             messages.error(request, "Image is required.")
-            return redirect('add_criminal')  # Fixed redirect
+            return redirect('add_user')
 
         # Save file
         fs = FileSystemStorage()
@@ -523,23 +612,23 @@ def save_criminal(request):
         uploaded_file_url = fs.url(filename)
 
         # Process the image for face recognition
-        face_data = process_criminal_face(uploaded_file_path, full_name)
-        
+        face_data = process_authorized_face(uploaded_file_path, name)
+
         if not face_data['face_detected']:
             # If no face detected, still save but mark as not ready for recognition
             messages.warning(request, f"Warning: {face_data['error']} The profile was saved but won't be used for real-time detection until a proper face image is uploaded.")
         elif face_data['face_quality_score'] < 0.5:
             messages.warning(request, f"Warning: The uploaded image has low quality (Score: {face_data['face_quality_score']:.2f}). Consider uploading a clearer image for better detection accuracy.")
         else:
-            messages.success(request, f"Criminal successfully added with high-quality face recognition data (Score: {face_data['face_quality_score']:.2f}).")
+            messages.success(request, f"Authorized person successfully added with high-quality face recognition data (Score: {face_data['face_quality_score']:.2f}).")
 
-        # Create criminal record with face data
-        Criminal.objects.create(
-            full_name=full_name,
-            national_id=national_id,
-            address=address,
+        # Create authorized person record with face data
+        AuthorizedPerson.objects.create(
+            name=name,
+            id_number=id_number,
+            department=department,
+            role=role,
             profile_picture=uploaded_file_url.lstrip('/'),
-            status="wanted",
             face_embedding=face_data['face_embedding'],
             face_embeddings_backup=face_data['face_embeddings_backup'],
             face_quality_score=face_data['face_quality_score'],
@@ -549,68 +638,276 @@ def save_criminal(request):
             processing_notes=face_data['processing_notes']
         )
 
-        return redirect('view_criminals')
+        return redirect('view_users')
 
 
 
-# view to get citizen(criminal) details
-def view_criminals(request):
-    criminals=Criminal.objects.all()
-    context={
-        "criminals":criminals
+# view to get authorized persons details
+def view_users(request):
+    users = AuthorizedPerson.objects.all()
+    context = {
+        "users": users
     }
-    return render(request,'home/view_criminals.html',context)
+    return render(request, 'home/view_users.html', context)
 
 
 
 @csrf_exempt
-def change_criminal_status(request):
+def change_user_status(request):
     if request.method == 'POST':
-        citizen_id = request.POST.get('citizen_id')
-        new_status = request.POST.get('new_status')
+        user_id = request.POST.get('user_id')
+        is_active = request.POST.get('is_active') == 'true'
 
         try:
-            criminal = Criminal.objects.get(id=citizen_id)
-            criminal.status = new_status
-            criminal.save()
+            user = AuthorizedPerson.objects.get(id=user_id)
+            user.is_active = is_active
+            user.save()
             return JsonResponse({'success': True})
-        except Criminal.DoesNotExist:
-            return JsonResponse({'success': False, 'message': 'Citizen not found'})
+        except AuthorizedPerson.DoesNotExist:
+            return JsonResponse({'success': False, 'message': 'User not found'})
     return JsonResponse({'success': False, 'message': 'Invalid request'})
 
 
 
 
 
-def identify_criminal(request):
+def detect_unauthorized(request):
     user = User.objects.get(id=request.session['id'])
     context = {
         "user": user
     }
-    return render(request, 'home/identify_criminal.html', context)
+    return render(request, 'home/detect_unauthorized.html', context)
 
 
-def spotted_criminal(request):
-    # Fetch all sightings of criminals still marked as 'wanted'
-    criminals = CriminalLastSpotted.objects.filter(criminal__status='wanted').order_by('-timestamp')
-    return render(request, 'home/spotted_criminal.html', {'criminals': criminals})
+def spotted_unauthorized(request):
+    # Fetch all unauthorized detections
+    detections = UnauthorizedDetection.objects.all().order_by('-timestamp')
+    return render(request, 'home/spotted_unauthorized.html', {'detections': detections})
 
 
 
-def found_criminal(request, thief_id):
-    # Update status of all sightings + main criminal record
-    sighting = get_object_or_404(CriminalLastSpotted, pk=thief_id)
-    criminal = sighting.criminal
+def mark_detection_handled(request, detection_id):
+    # Mark unauthorized detection as handled
+    detection = get_object_or_404(UnauthorizedDetection, pk=detection_id)
+    detection.handled = True  # Assuming we add a handled field, or just delete
+    detection.save()
 
-    # Update Criminal status
-    criminal.status = 'arrested'
-    criminal.save()
+    messages.success(request, f"Detection for {detection.detected_name or 'Unknown Person'} has been marked as handled.")
+    return redirect("spotted_unauthorized")
 
-    # Update all related sightings
-    CriminalLastSpotted.objects.filter(criminal=criminal).update(criminal=criminal)
+def test_detection_system(request):
+    """Test endpoint to verify the detection system is working"""
+    try:
+        # Check if there are any authorized persons
+        authorized_count = AuthorizedPerson.objects.filter(is_active=True).count()
+        total_detections = UnauthorizedDetection.objects.count()
 
-    messages.success(request, f"{criminal.full_name} has been marked as 'arrested'. Good job!")
-    return redirect("spotted_criminal")
+        # Test SMS configuration
+        sms_config = SMSConfiguration.objects.filter(is_active=True).first()
+        sms_status = "Configured" if sms_config else "Not configured"
+
+        # Test alert recipients
+        recipients_count = AlertRecipient.objects.filter(is_active=True, alert_for_unauthorized=True).count()
+
+        test_results = {
+            'authorized_persons': authorized_count,
+            'total_detections': total_detections,
+            'sms_config': sms_status,
+            'alert_recipients': recipients_count,
+            'system_status': 'Ready' if authorized_count > 0 else 'No authorized persons registered'
+        }
+
+        return JsonResponse(test_results)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+def process_frame(request):
+    """API endpoint to process frames from browser camera"""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
+
+    try:
+        if 'frame' not in request.FILES:
+            return JsonResponse({'success': False, 'error': 'No frame provided'}, status=400)
+
+        frame_file = request.FILES['frame']
+
+        # Save the uploaded frame temporarily
+        fs = FileSystemStorage()
+        filename = fs.save(f'temp_frame_{uuid.uuid4()}.jpg', frame_file)
+        frame_path = fs.path(filename)
+
+        # Process the frame for face detection
+        face_data = process_authorized_face(frame_path, 'frame')
+
+        detections = []
+
+        if face_data['face_detected']:
+            # Check if this face matches any authorized person
+            authorized_persons = AuthorizedPerson.objects.filter(
+                is_active=True,
+                face_detected=True,
+                face_embedding__isnull=False
+            )
+
+            best_match = None
+            best_confidence = 0.0
+
+            for person in authorized_persons:
+                if person.face_embedding:
+                    # Calculate similarity
+                    distance = np.linalg.norm(
+                        np.array(person.face_embedding) - np.array(face_data['face_embedding'])
+                    )
+                    confidence = 1.0 - min(distance, 1.0)
+
+                    if confidence > best_confidence and confidence > 0.4:  # Threshold
+                        best_confidence = confidence
+                        best_match = person
+
+            if best_match:
+                # Authorized person detected
+                detections.append({
+                    'id': best_match.id,
+                    'name': best_match.name,
+                    'type': 'authorized',
+                    'role': best_match.role,
+                    'confidence': best_confidence,
+                    'timestamp': timezone.now().strftime('%H:%M:%S'),
+                    'area': 'lecture_hall',
+                    'coordinates': '5.6037, -0.1870',
+                    'handled': False
+                })
+            else:
+                # Unauthorized person detected
+                # Check for duplicates (same face in last 30 seconds)
+                recent_detection = UnauthorizedDetection.objects.filter(
+                    timestamp__gte=timezone.now() - timedelta(seconds=30),
+                    detection_confidence__gt=0.3
+                ).first()
+
+                if not recent_detection:
+                    # Create new unauthorized detection
+                    detection = UnauthorizedDetection.objects.create(
+                        detected_name='Unknown Person',
+                        latitude=5.6037,
+                        longitude=-0.1870,
+                        detection_address='University Campus',
+                        detection_confidence=face_data['face_detection_confidence'],
+                        camera_location='Browser Camera',
+                        detection_method='browser_camera',
+                        access_attempted='lecture_hall'
+                    )
+
+                    # Send SMS alert
+                    try:
+                        sms_service = ArkeselSMSService()
+                        image_url = None
+                        sms_result = sms_service.send_unauthorized_alert(detection, image_url)
+
+                        if sms_result['success']:
+                            detection.sms_alert_sent = True
+                            detection.sms_sent_at = timezone.now()
+                            detection.sms_recipients = [r['phone'] for r in sms_result['results'] if r['success']]
+                            detection.sms_response = sms_result
+                            detection.save()
+                    except Exception as sms_error:
+                        print(f"SMS error: {sms_error}")
+
+                    detections.append({
+                        'id': detection.id,
+                        'name': 'Unknown Person',
+                        'type': 'unauthorized',
+                        'confidence': face_data['face_detection_confidence'],
+                        'timestamp': detection.timestamp.strftime('%H:%M:%S'),
+                        'area': detection.access_attempted,
+                        'coordinates': f"{detection.latitude}, {detection.longitude}",
+                        'handled': detection.handled
+                    })
+
+        # Clean up temporary file
+        try:
+            fs.delete(filename)
+        except:
+            pass
+
+        # Get total detection count
+        total_detections = UnauthorizedDetection.objects.filter(
+            timestamp__gte=timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        ).count()
+
+        return JsonResponse({
+            'success': True,
+            'detections': detections,
+            'total_detections': total_detections,
+            'face_detected': face_data['face_detected']
+        })
+
+    except Exception as e:
+        print(f"Frame processing error: {e}")
+        return JsonResponse({
+            'success': False,
+            'error': str(e),
+            'detections': [],
+            'total_detections': 0
+        }, status=500)
+
+def get_recent_detections(request):
+    """API endpoint to get recent unauthorized detections for real-time updates"""
+    try:
+        # Clean up old detections from memory periodically
+        clear_old_detections()
+
+        # Get recent detections from the last 5 minutes from database
+        db_detections = UnauthorizedDetection.objects.filter(
+            timestamp__gte=timezone.now() - timedelta(minutes=5)
+        ).order_by('-timestamp')[:10]  # Last 10 detections
+
+        detections_data = []
+        for detection in db_detections:
+            detections_data.append({
+                'id': detection.id,
+                'name': detection.detected_name or 'Unknown Person',
+                'timestamp': detection.timestamp.strftime('%H:%M:%S'),
+                'confidence': float(detection.detection_confidence) if detection.detection_confidence else 0.0,
+                'location': detection.detection_address,
+                'coordinates': f"{detection.latitude}, {detection.longitude}",
+                'area': detection.access_attempted,
+                'handled': detection.handled
+            })
+
+        # Add in-memory detections from active camera session
+        global recent_detections
+        for detection in recent_detections[:10]:  # Take first 10 from memory
+            # Avoid duplicates by checking if ID already exists
+            if not any(d['id'] == detection['id'] for d in detections_data):
+                detections_data.insert(0, detection)  # Add to beginning
+
+        # Keep only the most recent 10
+        detections_data = detections_data[:10]
+
+        # Get total count for the session (from database + memory)
+        db_count = UnauthorizedDetection.objects.filter(
+            timestamp__gte=timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        ).count()
+        total_count = db_count + len(recent_detections)
+
+        return JsonResponse({
+            'success': True,
+            'detections': detections_data,
+            'total_count': total_count,
+            'recent_count': len(detections_data)
+        })
+
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e),
+            'detections': [],
+            'total_count': 0,
+            'recent_count': 0
+        }, status=500)
+
 
 
 
@@ -622,35 +919,36 @@ def detect_image(request):
         filename = fs.save(myfile.name, myfile)
         uploaded_file_path = fs.path(filename)
 
-        # Load known criminals using enhanced embeddings
+        # Load known authorized persons using enhanced embeddings
         known_embeddings = []
         known_names = []
-        known_criminals = {}
+        known_persons = {}
         embedding_weights = []
 
-        # Load high-quality criminal profiles first
-        criminals = Criminal.objects.filter(
+        # Load high-quality authorized person profiles
+        persons = AuthorizedPerson.objects.filter(
             face_detected=True,
             face_embedding__isnull=False,
-            face_quality_score__gt=0.5
+            face_quality_score__gt=0.5,
+            is_active=True
         ).order_by('-face_quality_score')
-        for criminal in criminals:
-            if criminal.face_embedding:
-                primary_embedding = np.array(criminal.face_embedding, dtype=np.float32)
+        for person in persons:
+            if person.face_embedding:
+                primary_embedding = np.array(person.face_embedding, dtype=np.float32)
                 known_embeddings.append(primary_embedding)
-                known_names.append(f"{criminal.full_name} ({criminal.address})")
-                known_criminals[len(known_embeddings)-1] = criminal
-                embedding_weights.append(criminal.face_quality_score or 1.0)
+                known_names.append(f"{person.name} ({person.id_number})")
+                known_persons[len(known_embeddings)-1] = person
+                embedding_weights.append(person.face_quality_score or 1.0)
 
         # Fallback for older profiles without embeddings
-        fallback_criminals = Criminal.objects.exclude(
+        fallback_persons = AuthorizedPerson.objects.exclude(
             face_detected=True,
             face_embedding__isnull=False,
             face_quality_score__gt=0.5
-        )
-        for criminal in fallback_criminals:
+        ).filter(is_active=True)
+        for person in fallback_persons:
             try:
-                img = cv2.imread(criminal.profile_picture.path)
+                img = cv2.imread(person.profile_picture.path)
                 if img is None:
                     continue
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -658,18 +956,18 @@ def detect_image(request):
                 if len(faces) > 0:
                     embedding = faces[0].normed_embedding
                     known_embeddings.append(embedding)
-                    known_names.append(f"{criminal.full_name} ({criminal.address}) [Legacy]")
-                    known_criminals[len(known_embeddings)-1] = criminal
+                    known_names.append(f"{person.name} ({person.id_number}) [Legacy]")
+                    known_persons[len(known_embeddings)-1] = person
                     embedding_weights.append(0.7)  # Lower weight for fallback
             except Exception as e:
-                print(f"Error loading criminal face: {e}")
+                print(f"Error loading person face: {e}")
                 continue
 
         # Load uploaded image
         unknown_img = cv2.imread(uploaded_file_path)
         if unknown_img is None:
             messages.error(request, "Could not read uploaded image.")
-            return redirect('identify_criminal')
+            return redirect('detect_unauthorized')
 
         unknown_img_rgb = cv2.cvtColor(unknown_img, cv2.COLOR_BGR2RGB)
         faces = face_app.get(unknown_img_rgb)
@@ -678,7 +976,8 @@ def detect_image(request):
         pil_image = Image.fromarray(unknown_img_rgb)
         draw = ImageDraw.Draw(pil_image)
 
-        found = False
+        authorized_found = False
+        unauthorized_found = False
         matches_found = []
 
         for face in faces:
@@ -688,16 +987,17 @@ def detect_image(request):
 
             name = "Unknown"
             confidence = 0.0
+            is_authorized = False
 
             # Enhanced matching with confidence scoring
             if known_embeddings:
                 best_confidence = 0.0
                 best_match_idx = -1
-                
+
                 for idx, known_emb in enumerate(known_embeddings):
                     distance = np.linalg.norm(known_emb - embedding)
                     weighted_confidence = (1.0 - min(distance, 1.0)) * embedding_weights[idx]
-                    
+
                     if weighted_confidence > best_confidence and distance < 0.65:  # Adjusted threshold
                         best_confidence = weighted_confidence
                         best_match_idx = idx
@@ -705,30 +1005,33 @@ def detect_image(request):
                 if best_match_idx >= 0 and best_confidence > 0.4:
                     name = known_names[best_match_idx]
                     confidence = best_confidence
-                    criminal = known_criminals[best_match_idx]
-                    found = True
+                    person = known_persons[best_match_idx]
+                    is_authorized = True
+                    authorized_found = True
                     matches_found.append({
-                        'name': criminal.full_name,
+                        'name': person.name,
                         'confidence': confidence,
-                        'status': criminal.status,
-                        'criminal_obj': criminal
+                        'role': person.role,
+                        'person_obj': person
                     })
+                else:
+                    unauthorized_found = True
 
             # Draw bounding box and label
-            color = (0, 255, 0) if confidence > 0.8 else (255, 165, 0) if confidence > 0.6 else (255, 0, 0)
-            draw.rectangle(((left, top), (right, bottom)), outline=color, width=3)
-            
-            # Create enhanced label
-            if confidence > 0:
-                label = f"{name} ({confidence:.2f})"
+            if is_authorized:
+                color = (0, 255, 0)  # Green for authorized
+                label = f"Authorized: {name} ({confidence:.2f})"
             else:
-                label = "Unknown Person"
-                
+                color = (255, 0, 0)  # Red for unauthorized
+                label = "Unauthorized Person"
+
+            draw.rectangle(((left, top), (right, bottom)), outline=color, width=3)
+
             try:
                 font = ImageFont.load_default()
             except:
                 font = None
-            
+
             # Calculate text size for better positioning
             try:
                 bbox_text = draw.textbbox((0, 0), label, font=font)
@@ -737,7 +1040,7 @@ def detect_image(request):
             except:
                 # Fallback for older PIL versions
                 text_width, text_height = draw.textsize(label, font=font)
-            
+
             # Draw background rectangle for text
             draw.rectangle(((left, top - text_height - 10), (left + text_width + 10, top)), fill=color)
             draw.text((left + 5, top - text_height - 5), label, fill=(255, 255, 255), font=font)
@@ -748,183 +1051,185 @@ def detect_image(request):
         result_path = uploaded_file_path.replace('.', '_result.')
         pil_image.save(result_path)
 
-        # Enhanced feedback messages with sighting creation and SMS alerts
-        if found:
+        # Enhanced feedback messages with detection creation and SMS alerts
+        if authorized_found:
+            messages.success(request, f"✅ AUTHORIZED PERSON(S) DETECTED: {', '.join([m['name'] for m in matches_found])} - Access granted.")
+        elif unauthorized_found:
             sms_alerts_sent = 0
-            sightings_created = 0
-            
-            for match in matches_found:
-                criminal = match['criminal_obj']
-                confidence = match['confidence']
-                
-                # Only process if criminal is not released
-                if criminal.status != 'released':
-                    try:
-                        # Check if this criminal was spotted recently (within last 5 minutes)
-                        recent_spotting = CriminalLastSpotted.objects.filter(
-                            criminal=criminal,
-                            timestamp__gte=timezone.now() - timedelta(minutes=5)
-                        ).exists()
-                        
-                        if not recent_spotting:
-                            # Get camera location (for uploaded images, we use "Manual Upload")
-                            location_data = {
-                                'description': 'Manual Photo Upload',
-                                'latitude': 5.6037,  # Default Accra coordinates
-                                'longitude': -0.1870,
-                                'address': 'Photo Upload Detection System'
-                            }
-                            
-                            # Save uploaded image as evidence (copy to sightings folder)
-                            captured_image = None
-                            try:
-                                # Copy the uploaded file to sightings directory
-                                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                                evidence_filename = f"upload_detection_{criminal.full_name.replace(' ', '_')}_{timestamp}.jpg"
-                                
-                                # Read the uploaded image and save as evidence
-                                with open(uploaded_file_path, 'rb') as f:
-                                    image_content = f.read()
-                                    captured_image = ContentFile(image_content, name=evidence_filename)
-                                
-                            except Exception as img_error:
-                                print(f"Error saving evidence image: {img_error}")
-                            
-                            # Create sighting record
-                            sighting = CriminalLastSpotted.objects.create(
-                                criminal=criminal,
-                                latitude=location_data['latitude'],
-                                longitude=location_data['longitude'],
-                                spotted_address=location_data['address'],
-                                detection_confidence=confidence,
-                                camera_location=location_data['description'],
-                                detection_method='uploaded_image'
-                            )
-                            
-                            # Save evidence image to the sighting
-                            if captured_image:
-                                sighting.image_captured = captured_image
-                                sighting.save()
-                            
-                            sightings_created += 1
-                            print(f"Created sighting record: {criminal.full_name} (Confidence: {confidence:.3f})")
-                            
-                            # Send SMS Alert via Arkesel
-                            try:
-                                sms_service = ArkeselSMSService()
-                                
-                                # Create image URL if evidence image exists
-                                image_url = None
-                                if sighting.image_captured:
-                                    image_url = f"{settings.MEDIA_URL}{sighting.image_captured.name}"
-                                    if not image_url.startswith('http'):
-                                        # Add domain for absolute URL (adjust as needed)
-                                        image_url = f"http://localhost:8000{image_url}"
-                                
-                                # Send SMS alert
-                                sms_result = sms_service.send_criminal_alert(criminal, sighting, image_url)
-                                
-                                if sms_result['success']:
-                                    # Update sighting with SMS info
-                                    sighting.sms_alert_sent = True
-                                    sighting.sms_sent_at = timezone.now()
-                                    sighting.sms_recipients = [r['phone'] for r in sms_result['results'] if r['success']]
-                                    sighting.sms_response = sms_result
-                                    sighting.save()
-                                    
-                                    sms_alerts_sent += sms_result['total_sent']
-                                    print(f"SMS Alert sent successfully: {sms_result['total_sent']} recipients")
-                                    
-                                else:
-                                    print(f"SMS Alert failed: {sms_result.get('error', 'Unknown error')}")
-                                    sighting.sms_response = sms_result
-                                    sighting.save()
-                            
-                            except Exception as sms_error:
-                                print(f"SMS service error: {sms_error}")
-                                sighting.sms_response = {'error': str(sms_error)}
-                                sighting.save()
-                    
-                    except Exception as e:
-                        print(f"Error processing sighting for {criminal.full_name}: {e}")
-            
-            # Enhanced success messages
-            if len(matches_found) == 1:
-                match = matches_found[0]
-                criminal = match['criminal_obj']
-                base_message = f"🚨 CRIMINAL IDENTIFIED: {criminal.full_name} (Status: {criminal.status.upper()}, Confidence: {match['confidence']:.2f})"
-                
-                if criminal.status != 'released':
-                    if sightings_created > 0:
-                        base_message += f" | ✅ Sighting recorded"
-                    if sms_alerts_sent > 0:
-                        base_message += f" | 📱 SMS alerts sent to {sms_alerts_sent} recipients"
-                    base_message += " | 🚔 Authorities have been notified!"
-                else:
-                    base_message += " | ℹ️ This person has been released - no alerts sent"
-                
-                messages.success(request, base_message)
-            else:
-                criminal_names = [m['criminal_obj'].full_name for m in matches_found]
-                base_message = f"🚨 MULTIPLE CRIMINALS IDENTIFIED: {', '.join(criminal_names)}"
-                
-                if sightings_created > 0:
-                    base_message += f" | ✅ {sightings_created} sightings recorded"
-                if sms_alerts_sent > 0:
-                    base_message += f" | 📱 {sms_alerts_sent} SMS alerts sent"
-                if sightings_created > 0 or sms_alerts_sent > 0:
-                    base_message += " | 🚔 Authorities notified!"
-                
-                messages.success(request, base_message)
-        else:
-            messages.warning(request, "No criminal matches found in the uploaded image. The person may not be in the system or the image quality may be insufficient.")
+            detections_created = 0
 
-    return redirect('identify_criminal')
-# Global camera instance
-camera = None
-camera_active = False
+            # Get camera location (for uploaded images, we use "Manual Upload")
+            location_data = {
+                'description': 'Manual Photo Upload',
+                'latitude': 5.6037,  # Default Accra coordinates
+                'longitude': -0.1870,
+                'address': 'Photo Upload Detection System'
+            }
+
+            # Save uploaded image as evidence
+            captured_image = None
+            try:
+                # Copy the uploaded file to detections directory
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                evidence_filename = f"upload_detection_unauthorized_{timestamp}.jpg"
+
+                # Read the uploaded image and save as evidence
+                with open(uploaded_file_path, 'rb') as f:
+                    image_content = f.read()
+                    captured_image = ContentFile(image_content, name=evidence_filename)
+
+            except Exception as img_error:
+                print(f"Error saving evidence image: {img_error}")
+
+            # Create detection record
+            detection = UnauthorizedDetection.objects.create(
+                latitude=location_data['latitude'],
+                longitude=location_data['longitude'],
+                detection_address=location_data['address'],
+                camera_location=location_data['description'],
+                detection_method='uploaded_image'
+            )
+
+            # Save evidence image to the detection
+            if captured_image:
+                detection.image_captured = captured_image
+                detection.save()
+
+            detections_created += 1
+            print(f"Created unauthorized detection record")
+
+            # Send SMS Alert via Arkesel
+            try:
+                sms_service = ArkeselSMSService()
+
+                # Create image URL if evidence image exists
+                image_url = None
+                if detection.image_captured:
+                    image_url = f"{settings.MEDIA_URL}{detection.image_captured.name}"
+                    if not image_url.startswith('http'):
+                        # Add domain for absolute URL (adjust as needed)
+                        image_url = f"http://localhost:8000{image_url}"
+
+                # Send SMS alert
+                sms_result = sms_service.send_unauthorized_alert(detection, image_url)
+
+                if sms_result['success']:
+                    # Update detection with SMS info
+                    detection.sms_alert_sent = True
+                    detection.sms_sent_at = timezone.now()
+                    detection.sms_recipients = [r['phone'] for r in sms_result['results'] if r['success']]
+                    detection.sms_response = sms_result
+                    detection.save()
+
+                    sms_alerts_sent += sms_result['total_sent']
+                    print(f"SMS Alert sent successfully: {sms_result['total_sent']} recipients")
+
+                else:
+                    print(f"SMS Alert failed: {sms_result.get('error', 'Unknown error')}")
+                    detection.sms_response = sms_result
+                    detection.save()
+
+            except Exception as sms_error:
+                print(f"SMS service error: {sms_error}")
+                detection.sms_response = {'error': str(sms_error)}
+                detection.save()
+
+            # Success message for unauthorized detection
+            base_message = f"🚨 UNAUTHORIZED ACCESS DETECTED"
+
+            if detections_created > 0:
+                base_message += f" | ✅ Detection recorded"
+            if sms_alerts_sent > 0:
+                base_message += f" | 📱 SMS alerts sent to {sms_alerts_sent} recipients"
+            base_message += " | 🚔 Security team notified!"
+
+            messages.warning(request, base_message)
+        else:
+            messages.info(request, "No faces detected in the uploaded image or image quality is insufficient.")
+
+    return redirect('detect_unauthorized')
+# Global detection storage (for browser-based camera)
+recent_detections = []  # Global list to store recent detections
 
 class VideoCamera:
     def __init__(self):
-        self.video = cv2.VideoCapture(0)
-        self.video.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self.video.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        
-        # Load known criminals once using enhanced embeddings
+        print("📹 Initializing VideoCamera...")
+        self.video = None
+        self.initialized = False
+
+        try:
+            # Try different camera indices if 0 doesn't work
+            for camera_index in [0, 1, 2]:
+                print(f"📹 Trying camera index {camera_index}...")
+                self.video = cv2.VideoCapture(camera_index)
+                if self.video.isOpened():
+                    print(f"✅ Camera index {camera_index} opened successfully")
+                    break
+                else:
+                    self.video.release()
+                    self.video = None
+
+            if self.video is None or not self.video.isOpened():
+                raise Exception("No camera device found or accessible")
+
+            # Set camera properties
+            self.video.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.video.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            self.video.set(cv2.CAP_PROP_FPS, 30)
+            self.video.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimize buffer for real-time
+
+            # Verify camera is working
+            ret, test_frame = self.video.read()
+            if not ret or test_frame is None:
+                raise Exception("Camera opened but cannot capture frames")
+
+            print("✅ Camera initialized and tested successfully")
+            self.initialized = True
+
+        except Exception as e:
+            print(f"❌ Camera initialization failed: {e}")
+            if self.video:
+                self.video.release()
+            self.video = None
+            self.initialized = False
+            raise e
+
+        # Load known authorized persons once using enhanced embeddings
         self.known_embeddings = []
         self.known_backup_embeddings = []
         self.known_names = []
         self.known_national_ids = []
         self.known_criminals = {}
         self.embedding_weights = []  # Quality-based weights for embeddings
-        self.load_criminals_enhanced()
+        self.load_authorized_persons_enhanced()
         
-    def load_criminals_enhanced(self):
-        """Load all criminal data using pre-processed embeddings for maximum accuracy"""
-        criminals = Criminal.objects.filter(
+    def load_authorized_persons_enhanced(self):
+        """Load all authorized person data using pre-processed embeddings for maximum accuracy"""
+        persons = AuthorizedPerson.objects.filter(
             face_detected=True,
             face_embedding__isnull=False,
-            face_quality_score__gt=0.5
+            face_quality_score__gt=0.5,
+            is_active=True
         ).order_by('-face_quality_score')
         loaded_count = 0
         fallback_count = 0
-        
-        for criminal in criminals:
+
+        for person in persons:
             try:
                 # Use pre-processed embeddings if available
-                if criminal.face_embedding and criminal.face_detected:
+                if person.face_embedding and person.face_detected:
                     # Add primary embedding
-                    primary_embedding = np.array(criminal.face_embedding, dtype=np.float32)
+                    primary_embedding = np.array(person.face_embedding, dtype=np.float32)
                     self.known_embeddings.append(primary_embedding)
-                    self.known_names.append(criminal.full_name)
-                    self.known_national_ids.append(criminal.national_id)
-                    self.known_criminals[criminal.national_id] = criminal
-                    self.embedding_weights.append(criminal.face_quality_score or 1.0)
-                    
+                    self.known_names.append(person.name)
+                    self.known_national_ids.append(person.id_number)
+                    self.known_criminals[person.id_number] = person
+                    self.embedding_weights.append(person.face_quality_score or 1.0)
+
                     # Add backup embeddings for better matching
                     backup_embeddings = []
-                    if criminal.face_embeddings_backup:
-                        for backup in criminal.face_embeddings_backup:
+                    if person.face_embeddings_backup:
+                        for backup in person.face_embeddings_backup:
                             if isinstance(backup, dict) and 'embedding' in backup:
                                 backup_embedding = np.array(backup['embedding'], dtype=np.float32)
                                 backup_embeddings.append({
@@ -932,56 +1237,73 @@ class VideoCamera:
                                     'enhancement': backup.get('enhancement', 'unknown'),
                                     'confidence': backup.get('confidence', 0.5)
                                 })
-                    
+
                     self.known_backup_embeddings.append(backup_embeddings)
                     loaded_count += 1
-                    print(f"Loaded enhanced profile for {criminal.full_name} (Quality: {criminal.face_quality_score:.3f}, Backups: {len(backup_embeddings)})")
-                    
+                    print(f"Loaded enhanced profile for {person.name} (Quality: {person.face_quality_score:.3f}, Backups: {len(backup_embeddings)})")
+
                 else:
                     # Fallback: process image in real-time (less accurate but still works)
                     try:
-                        img = cv2.imread(criminal.profile_picture.path)
+                        img = cv2.imread(person.profile_picture.path)
                         if img is not None:
                             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                             faces = face_app.get(img)
                             if len(faces) > 0:
                                 self.known_embeddings.append(faces[0].normed_embedding)
-                                self.known_names.append(criminal.full_name)
-                                self.known_national_ids.append(criminal.national_id)
-                                self.known_criminals[criminal.national_id] = criminal
+                                self.known_names.append(person.name)
+                                self.known_national_ids.append(person.id_number)
+                                self.known_criminals[person.id_number] = person
                                 self.known_backup_embeddings.append([])  # No backups
                                 self.embedding_weights.append(0.7)  # Lower weight for fallback
                                 fallback_count += 1
-                                print(f"Loaded fallback profile for {criminal.full_name}")
+                                print(f"Loaded fallback profile for {person.name}")
                     except Exception as e:
-                        print(f"Fallback loading failed for {criminal.full_name}: {e}")
-                        
+                        print(f"Fallback loading failed for {person.name}: {e}")
+
             except Exception as e:
-                print(f"Error loading criminal {criminal.full_name}: {e}")
-        
-        print(f"Criminal recognition system loaded: {loaded_count} enhanced profiles, {fallback_count} fallback profiles")
-        
-        # Load non-recognition-ready criminals for reference
-        non_ready_criminals = Criminal.objects.exclude(
+                print(f"Error loading person {person.name}: {e}")
+
+        print(f"🚀 Authorized person recognition system loaded: {loaded_count} enhanced profiles, {fallback_count} fallback profiles")
+        print(f"📊 Total known persons: {len(self.known_embeddings)}")
+        print(f"🎯 Recognition ready for {len([p for p in persons if p.is_active])} active authorized persons")
+
+        # Load non-recognition-ready persons for reference
+        non_ready_persons = AuthorizedPerson.objects.exclude(
             face_detected=True,
             face_embedding__isnull=False,
             face_quality_score__gt=0.5
-        ).count()
-        if non_ready_criminals > 0:
-            print(f"Warning: {non_ready_criminals} criminal profiles are not ready for recognition (poor image quality or no face detected)")
+        ).filter(is_active=True).count()
+        if non_ready_persons > 0:
+            print(f"Warning: {non_ready_persons} authorized person profiles are not ready for recognition (poor image quality or no face detected)")
 
     def __del__(self):
         if hasattr(self, 'video'):
             self.video.release()
 
     def get_frame(self):
-        success, image = self.video.read()
-        if not success:
+        # Check if camera is properly initialized
+        if not self.initialized or self.video is None or not self.video.isOpened():
+            print("❌ Camera not properly initialized")
             return None, []
-            
-        # Process the frame for face detection
-        rgb_frame = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        faces = face_app.get(rgb_frame)
+
+        try:
+            success, image = self.video.read()
+            if not success or image is None:
+                print("❌ Failed to read frame from camera")
+                return None, []
+
+            # Process the frame for face detection
+            rgb_frame = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            faces = face_app.get(rgb_frame)
+
+            if len(faces) > 0:
+                print(f"📷 Detected {len(faces)} face(s) in frame")
+            else:
+                print("📷 No faces detected in frame")
+        except Exception as e:
+            print(f"❌ Error processing frame: {e}")
+            return None, []
         
         detection_results = []
         
@@ -994,124 +1316,166 @@ class VideoCamera:
             status = "Unknown"
             confidence = 0.0
             best_match_info = None
-            
+            is_authorized = False
+
+            # Check for authorized person match
             if self.known_embeddings:
+                print(f"🔍 Matching against {len(self.known_embeddings)} known embeddings")
                 # Enhanced matching using multiple embeddings and weighted scoring
                 best_match_info = self.enhanced_face_matching(embedding)
-                
+
                 if best_match_info and best_match_info['confidence'] > 0.4:  # Adjusted threshold
-                    national_id = best_match_info['national_id']
-                    criminal_obj = self.known_criminals[national_id]
-                    name = criminal_obj.full_name
-                    status = criminal_obj.status
+                    id_number = best_match_info['national_id']
+                    person_obj = self.known_criminals[id_number]
+                    name = person_obj.name
+                    status = "Authorized"
                     confidence = best_match_info['confidence']
-                    
-                    # Record sighting if not released
-                    if criminal_obj.status != 'released':
-                        try:
-                            # Check if this criminal was spotted recently (within last 5 minutes)
-                            recent_spotting = CriminalLastSpotted.objects.filter(
-                                national_id=criminal_obj.national_id,
-                                timestamp__gte=timezone.now() - timedelta(minutes=5)
-                            ).exists()
-                            
-                            if not recent_spotting:
-                                # Get camera location
-                                location_data = get_camera_location()
-                                
-                                # Save captured frame as evidence
-                                captured_image = save_captured_image(image, criminal_obj.full_name,
-                                                                   f"{criminal_obj.national_id}_{int(timezone.now().timestamp())}")
-                                
-                                # Create sighting record
-                                sighting = CriminalLastSpotted.objects.create(
-                                    criminal=criminal_obj,
-                                    latitude=location_data['latitude'],
-                                    longitude=location_data['longitude'],
-                                    spotted_address=location_data['address'],
-                                    detection_confidence=confidence,
-                                    camera_location=location_data['description'],
-                                    detection_method='realtime_webcam'
-                                )
-                                
-                                # Save captured image to the sighting
-                                if captured_image:
-                                    sighting.image_captured = captured_image
-                                    sighting.save()
-                                
-                                print(f"Recorded sighting: {criminal_obj.full_name} (Confidence: {confidence:.3f})")
-                                
-                                # Send SMS Alert via Arkesel
-                                try:
-                                    sms_service = ArkeselSMSService()
-                                    
-                                    # Create image URL if captured image exists
-                                    image_url = None
-                                    if sighting.image_captured:
-                                        image_url = f"{settings.MEDIA_URL}{sighting.image_captured.name}"
-                                        if not image_url.startswith('http'):
-                                            # Add domain for absolute URL (adjust as needed)
-                                            image_url = f"http://localhost:8000{image_url}"
-                                    
-                                    # Send SMS alert
-                                    sms_result = sms_service.send_criminal_alert(criminal_obj, sighting, image_url)
-                                    
-                                    if sms_result['success']:
-                                        # Update sighting with SMS info
-                                        sighting.sms_alert_sent = True
-                                        sighting.sms_sent_at = timezone.now()
-                                        sighting.sms_recipients = [r['phone'] for r in sms_result['results'] if r['success']]
-                                        sighting.sms_response = sms_result
-                                        sighting.save()
-                                        
-                                        print(f"SMS Alert sent successfully: {sms_result['total_sent']} recipients")
-                                        
-                                        # Store success info for UI feedback
-                                        best_match_info['sms_sent'] = True
-                                        best_match_info['sms_count'] = sms_result['total_sent']
-                                    else:
-                                        print(f"SMS Alert failed: {sms_result.get('error', 'Unknown error')}")
-                                        sighting.sms_response = sms_result
-                                        sighting.save()
-                                        
-                                        best_match_info['sms_sent'] = False
-                                        best_match_info['sms_error'] = sms_result.get('error', 'SMS failed')
-                                
-                                except Exception as sms_error:
-                                    print(f"SMS service error: {sms_error}")
-                                    sighting.sms_response = {'error': str(sms_error)}
-                                    sighting.save()
-                                    
-                                    best_match_info['sms_sent'] = False
-                                    best_match_info['sms_error'] = str(sms_error)
-                                
-                        except Exception as e:
-                            print(f"Error recording sighting: {e}")
+                    is_authorized = True
+                    print(f"✅ AUTHORIZED: {name} (ID: {id_number}, Confidence: {confidence:.3f})")
+                else:
+                    # No authorized match found - treat as unauthorized
+                    status = "Unauthorized"
+                    confidence = best_match_info['confidence'] if best_match_info else 0.0
+                    is_authorized = False
+                    name = "Unknown Person"
+                    print(f"🚨 UNAUTHORIZED DETECTED: Confidence: {confidence:.3f}")
+            else:
+                # No authorized persons loaded - all detections are unauthorized
+                print("⚠️ No authorized persons loaded - all detections will be marked as unauthorized")
+                best_match_info = None
+                status = "Unauthorized"
+                confidence = 0.0
+                is_authorized = False
+                name = "Unknown Person"
+                print(f"🚨 UNAUTHORIZED DETECTED: No authorized database loaded")
+
+            # Handle unauthorized detection
+            if not is_authorized:
+                # Check for duplicates before creating new detection
+                duplicate_detection = None
+                if embedding is not None:
+                    # Create a temporary detection object to check for duplicates
+                    temp_detection = UnauthorizedDetection(
+                        face_embedding=embedding.tolist() if hasattr(embedding, 'tolist') else embedding
+                    )
+                    duplicate_detection = temp_detection.check_duplicate(embedding)
+
+                if duplicate_detection:
+                    print(f"🔄 DUPLICATE: Skipping detection - similar to #{duplicate_detection.id} from {duplicate_detection.timestamp}")
+                    status = "Unauthorized (Duplicate)"
+                else:
+                    # Get camera location with dynamic area detection
+                    location_data = get_camera_location()
+
+                    # Save captured frame as evidence
+                    captured_image = save_captured_image(image, "Unauthorized_Person",
+                                                       f"unauthorized_{int(timezone.now().timestamp())}")
+
+                    # Create detection record
+                    detection = UnauthorizedDetection.objects.create(
+                        latitude=location_data['latitude'],
+                        longitude=location_data['longitude'],
+                        detection_address=location_data['address'],
+                        detection_confidence=confidence,
+                        camera_location=location_data['description'],
+                        detection_method='realtime_webcam',
+                        access_attempted=location_data.get('area_name', 'lecture_hall'),
+                        face_embedding=embedding.tolist() if embedding is not None and hasattr(embedding, 'tolist') else embedding
+                    )
+
+                    # Save captured image to the detection
+                    if captured_image:
+                        detection.image_captured = captured_image
+                        detection.save()
+
+                    print(f"🚨 Recorded unauthorized detection (Confidence: {confidence:.3f}) - Area: {detection.access_attempted}")
+
+                    # Add to recent detections for real-time display
+                    global recent_detections
+                    detection_data = {
+                        'id': detection.id,
+                        'name': detection.detected_name or 'Unknown Person',
+                        'timestamp': detection.timestamp.strftime('%H:%M:%S'),
+                        'confidence': float(detection.detection_confidence) if detection.detection_confidence else 0.0,
+                        'location': detection.detection_address,
+                        'coordinates': f"{detection.latitude}, {detection.longitude}",
+                        'area': detection.access_attempted,
+                        'handled': detection.handled
+                    }
+                    recent_detections.insert(0, detection_data)  # Add to beginning
+
+                    # Keep only last 50 detections in memory
+                    if len(recent_detections) > 50:
+                        recent_detections = recent_detections[:50]
+
+                    # Send SMS Alert via Arkesel
+                    try:
+                        sms_service = ArkeselSMSService()
+
+                        # Create image URL if captured image exists
+                        image_url = None
+                        if detection.image_captured:
+                            image_url = f"{settings.MEDIA_URL}{detection.image_captured.name}"
+                            if not image_url.startswith('http'):
+                                # Add domain for absolute URL (adjust as needed)
+                                image_url = f"http://localhost:8000{image_url}"
+
+                        # Send SMS alert
+                        sms_result = sms_service.send_unauthorized_alert(detection, image_url)
+
+                        if sms_result['success']:
+                            # Update detection with SMS info
+                            detection.sms_alert_sent = True
+                            detection.sms_sent_at = timezone.now()
+                            detection.sms_recipients = [r['phone'] for r in sms_result['results'] if r['success']]
+                            detection.sms_response = sms_result
+                            detection.save()
+
+                            print(f"📱 SMS Alert sent successfully: {sms_result['total_sent']} recipients")
+
+                            # Store success info for UI feedback
+                            best_match_info = best_match_info or {}
+                            best_match_info['sms_sent'] = True
+                            best_match_info['sms_count'] = sms_result['total_sent']
+                        else:
+                            print(f"❌ SMS Alert failed: {sms_result.get('error', 'Unknown error')}")
+                            detection.sms_response = sms_result
+                            detection.save()
+
+                            best_match_info = best_match_info or {}
+                            best_match_info['sms_sent'] = False
+                            best_match_info['sms_error'] = sms_result.get('error', 'SMS failed')
+
+                    except Exception as sms_error:
+                        print(f"❌ SMS service error: {sms_error}")
+                        detection.sms_response = {'error': str(sms_error)}
+                        detection.save()
+
+                        best_match_info = best_match_info or {}
+                        best_match_info['sms_sent'] = False
+                        best_match_info['sms_error'] = str(sms_error)
             
             # Draw bounding box and label
-            color = (0, 255, 0) if status == "released" else (0, 0, 255)
-            if confidence > 0.8:
-                color = (255, 0, 0)  # High confidence = red
-            elif confidence > 0.6:
-                color = (255, 165, 0)  # Medium confidence = orange
-            
-            cv2.rectangle(image, (left, top), (right, bottom), color, 2)
-            
-            # Create label with name and status
-            if status != "Unknown":
-                label = f"{name} - {status.upper()}"
+            if is_authorized:
+                color = (0, 255, 0)  # Green for authorized
+                label = f"Authorized: {name}"
                 if confidence > 0:
                     label += f" ({confidence:.2f})"
                 if best_match_info and 'match_type' in best_match_info:
                     label += f" [{best_match_info['match_type']}]"
             else:
-                label = "Unknown Person"
-            
+                color = (0, 0, 255)  # Red for unauthorized
+                label = "Unauthorized Person"
+                if best_match_info and 'sms_sent' in best_match_info and best_match_info['sms_sent']:
+                    label += " (Alert Sent)"
+
+            cv2.rectangle(image, (left, top), (right, bottom), color, 2)
+
             # Draw label background with adaptive size
             label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0]
             cv2.rectangle(image, (left, top - 20), (left + label_size[0] + 5, top), color, -1)
             cv2.putText(image, label, (left + 2, top - 5),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
             
             detection_results.append({
                 'name': name,
@@ -1133,53 +1497,51 @@ class VideoCamera:
         """
         best_confidence = 0.0
         best_match = None
-        
+
         for idx, primary_embedding in enumerate(self.known_embeddings):
-            national_id = self.known_national_ids[idx]
+            id_number = self.known_national_ids[idx]
             embedding_weight = self.embedding_weights[idx]
             backup_embeddings = self.known_backup_embeddings[idx]
-            
+
             # Calculate distance to primary embedding
             primary_distance = np.linalg.norm(primary_embedding - query_embedding)
             primary_confidence = (1.0 - min(primary_distance, 1.0)) * embedding_weight
-            
+
             max_confidence = primary_confidence
             match_type = "primary"
-            
+
             # Check backup embeddings for better matches
             for backup in backup_embeddings:
                 backup_embedding = backup['embedding']
                 backup_distance = np.linalg.norm(backup_embedding - query_embedding)
                 backup_confidence = (1.0 - min(backup_distance, 1.0)) * embedding_weight * 0.9  # Slight penalty for backup
-                
+
                 if backup_confidence > max_confidence:
                     max_confidence = backup_confidence
                     match_type = f"backup-{backup['enhancement']}"
-            
+
             # Apply additional scoring factors
-            criminal_obj = self.known_criminals[national_id]
-            
+            person_obj = self.known_criminals[id_number]
+
             # Bonus for high-quality profiles
-            if hasattr(criminal_obj, 'face_quality_score') and criminal_obj.face_quality_score:
-                quality_bonus = criminal_obj.face_quality_score * 0.1
+            if hasattr(person_obj, 'face_quality_score') and person_obj.face_quality_score:
+                quality_bonus = person_obj.face_quality_score * 0.1
                 max_confidence += quality_bonus
-            
-            # Status-based weight (wanted criminals get slight priority)
-            if criminal_obj.status == 'wanted':
-                max_confidence *= 1.05
-            elif criminal_obj.status == 'under_investigation':
-                max_confidence *= 1.02
-            
+
+            # Active status bonus
+            if hasattr(person_obj, 'is_active') and person_obj.is_active:
+                max_confidence *= 1.05  # Slight bonus for active authorized persons
+
             if max_confidence > best_confidence:
                 best_confidence = max_confidence
                 best_match = {
-                    'national_id': national_id,
+                    'national_id': id_number,
                     'confidence': best_confidence,
                     'match_type': match_type,
                     'primary_distance': primary_distance,
                     'embedding_weight': embedding_weight
                 }
-        
+
         return best_match if best_confidence > 0.4 else None
 
 
@@ -1341,54 +1703,37 @@ def delete_alert_recipient(request, recipient_id):
     
     return redirect('alert_recipients')
 
-def gen_frames():
-    global camera
-    while camera_active and camera:
-        frame_data = camera.get_frame()
-        if frame_data[0] is not None:
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame_data[0] + b'\r\n')
-        time.sleep(0.1)  # Control frame rate
 
-def video_feed(request):
-    """Video streaming endpoint"""
-    global camera, camera_active
-    
-    if not camera_active:
-        return HttpResponse("Camera not active", status=400)
-        
-    return StreamingHttpResponse(gen_frames(),
-                               content_type='multipart/x-mixed-replace; boundary=frame')
 
 def webcam_stream(request):
-    """Render the webcam streaming page"""
-    global camera, camera_active
-    
-    # Initialize camera if not already active
-    if not camera_active:
-        try:
-            camera = VideoCamera()
-            camera_active = True
-        except Exception as e:
-            messages.error(request, f"Could not access webcam: {str(e)}")
-            return redirect('identify_criminal')
-    
+    """Render the webcam streaming page - camera access handled by browser"""
     context = {
         'user': User.objects.get(id=request.session['id']) if request.session.get('id') else None
     }
     return render(request, 'home/webcam_stream.html', context)
 
+def clear_old_detections():
+    """Clear old detections from memory to prevent memory leaks"""
+    global recent_detections
+    # Keep only detections from the last 30 minutes
+    cutoff_time = timezone.now() - timedelta(minutes=30)
+    recent_detections = [
+        detection for detection in recent_detections
+        if 'timestamp' in detection and detection['timestamp'] > cutoff_time.strftime('%H:%M:%S')
+    ]
+
 def stop_webcam(request):
-    """Stop the webcam stream"""
-    global camera, camera_active
-    
-    camera_active = False
-    if camera:
-        del camera
-        camera = None
-    
+    """Stop the webcam session - camera cleanup handled by browser"""
+    global recent_detections
+
+    print("🛑 Stopping webcam session...")
+
+    # Clear recent detections to free memory
+    recent_detections.clear()
+    print("🧹 Recent detections cleared")
+
     messages.success(request, "Webcam session ended successfully.")
-    return redirect('identify_criminal')
+    return redirect('detect_unauthorized')
 
 
 
