@@ -5,8 +5,8 @@
 <div class="p-6 bg-gray-100 min-h-screen">
   <!-- Header -->
   <div class="mb-6">
-    <h1 class="text-3xl font-bold text-gray-800 animate-fade-in">Criminal Analytics Dashboard</h1>
-    <p class="text-gray-600 mt-1">Facial Recognition-Based Crime Detection - GCTU Campus</p>
+    <h1 class="text-3xl font-bold text-gray-800 animate-fade-in">Access Control Dashboard</h1>
+    <p class="text-gray-600 mt-1">Facial Recognition-Based Access Control - GCTU Campus</p>
   </div>
 
   <!-- Summary Cards -->
@@ -19,41 +19,149 @@
     {% endfor %}
   </div>
 
+  <!-- Trend Summary Cards -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mt-6 animate-fade-up delay-100">
+    <div class="bg-white p-4 rounded-2xl shadow hover:shadow-xl transform hover:scale-105 transition-all duration-300">
+      <h2 class="text-lg font-semibold text-gray-700">Total Detections</h2>
+      <p class="text-2xl font-bold text-red-600">{{ total_detections }}</p>
+      <p class="text-sm text-gray-500">All time</p>
+    </div>
+
+    <div class="bg-white p-4 rounded-2xl shadow hover:shadow-xl transform hover:scale-105 transition-all duration-300">
+      <h2 class="text-lg font-semibold text-gray-700">Avg Confidence</h2>
+      <p class="text-2xl font-bold text-green-600">{{ avg_confidence|floatformat:1 }}%</p>
+      <p class="text-sm text-gray-500">Detection accuracy</p>
+    </div>
+
+    <div class="bg-white p-4 rounded-2xl shadow hover:shadow-xl transform hover:scale-105 transition-all duration-300">
+      <h2 class="text-lg font-semibold text-gray-700">This Week</h2>
+      <p class="text-2xl font-bold text-orange-600">{{ this_week_count }}</p>
+      <p class="text-sm text-gray-500">vs {{ last_week_count }} last week</p>
+    </div>
+
+    <div class="bg-white p-4 rounded-2xl shadow hover:shadow-xl transform hover:scale-105 transition-all duration-300">
+      <h2 class="text-lg font-semibold text-gray-700">Weekly Trend</h2>
+      <p class="text-2xl font-bold {% if trend_percentage >= 0 %}text-red-600{% else %}text-green-600{% endif %}">
+        {% if trend_percentage >= 0 %}+{% endif %}{{ trend_percentage|floatformat:1 }}%
+      </p>
+      <p class="text-sm text-gray-500">Change from last week</p>
+    </div>
+  </div>
+
   <!-- Charts -->
   <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6 animate-fade-up delay-200">
     <div class="bg-white rounded-2xl p-6 shadow">
-      <h2 class="text-lg font-bold mb-4">Criminal Status Distribution</h2>
+      <h2 class="text-lg font-bold mb-4">User Role Distribution</h2>
       <canvas id="statusChart"></canvas>
     </div>
 
     <div class="bg-white rounded-2xl p-6 shadow">
-      <h2 class="text-lg font-bold mb-4">Sightings Over Time</h2>
+      <h2 class="text-lg font-bold mb-4">Detections Over Time</h2>
       <canvas id="sightingsChart"></canvas>
     </div>
   </div>
 
-  <!-- Recent Sightings Table -->
+  <!-- Trend Charts -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6 animate-fade-up delay-300">
+    <div class="bg-white rounded-2xl p-6 shadow">
+      <h2 class="text-lg font-bold mb-4">Access Points Targeted</h2>
+      <canvas id="accessPointsChart"></canvas>
+    </div>
+
+    <div class="bg-white rounded-2xl p-6 shadow">
+      <h2 class="text-lg font-bold mb-4">Detection Confidence</h2>
+      <canvas id="confidenceChart"></canvas>
+    </div>
+
+    <div class="bg-white rounded-2xl p-6 shadow">
+      <h2 class="text-lg font-bold mb-4">Weekly Trends</h2>
+      <canvas id="weeklyTrendsChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Trends Insights -->
+  <div class="bg-white mt-8 p-6 rounded-2xl shadow animate-fade-up delay-400">
+    <h2 class="text-lg font-bold mb-4">Security Insights & Recommendations</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div>
+        <h3 class="text-md font-semibold text-gray-800 mb-3">📊 Trend Analysis</h3>
+        <ul class="space-y-2 text-sm">
+          <li class="flex items-center">
+            <span class="w-2 h-2 bg-red-500 rounded-full mr-3"></span>
+            <span>Weekly trend: <strong class="{% if trend_percentage >= 0 %}text-red-600{% else %}text-green-600{% endif %}">
+              {% if trend_percentage >= 0 %}+{% endif %}{{ trend_percentage|floatformat:1 }}%</strong> from last week</span>
+          </li>
+          <li class="flex items-center">
+            <span class="w-2 h-2 bg-blue-500 rounded-full mr-3"></span>
+            <span>Average detection confidence: <strong>{{ avg_confidence|floatformat:1 }}%</strong></span>
+          </li>
+          <li class="flex items-center">
+            <span class="w-2 h-2 bg-green-500 rounded-full mr-3"></span>
+            <span>Total unauthorized attempts: <strong>{{ total_detections }}</strong></span>
+          </li>
+        </ul>
+      </div>
+
+      <div>
+        <h3 class="text-md font-semibold text-gray-800 mb-3">🎯 Recommendations</h3>
+        <ul class="space-y-2 text-sm">
+          {% if trend_percentage > 10 %}
+          <li class="flex items-center">
+            <span class="w-2 h-2 bg-red-500 rounded-full mr-3"></span>
+            <span class="text-red-600">⚠️ Increasing trend detected - Review security measures</span>
+          </li>
+          {% elif trend_percentage < -10 %}
+          <li class="flex items-center">
+            <span class="w-2 h-2 bg-green-500 rounded-full mr-3"></span>
+            <span class="text-green-600">✅ Security improving - Continue current measures</span>
+          </li>
+          {% else %}
+          <li class="flex items-center">
+            <span class="w-2 h-2 bg-yellow-500 rounded-full mr-3"></span>
+            <span class="text-yellow-600">📈 Stable trend - Monitor closely</span>
+          </li>
+          {% endif %}
+
+          {% if avg_confidence < 70 %}
+          <li class="flex items-center">
+            <span class="w-2 h-2 bg-orange-500 rounded-full mr-3"></span>
+            <span class="text-orange-600">🔧 Consider improving camera quality or lighting</span>
+          </li>
+          {% endif %}
+
+          {% if access_point_trends %}
+          <li class="flex items-center">
+            <span class="w-2 h-2 bg-blue-500 rounded-full mr-3"></span>
+            <span>Most targeted area: <strong>{{ access_point_trends.0.access_attempted|title }}</strong></span>
+          </li>
+          {% endif %}
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent Detections Table -->
   <div class="bg-white mt-8 p-6 rounded-2xl shadow animate-fade-up delay-300">
-    <h2 class="text-lg font-bold mb-4">Recent Sightings</h2>
+    <h2 class="text-lg font-bold mb-4">Recent Detections</h2>
     <div class="overflow-auto">
       <table class="table-auto w-full text-left">
         <thead>
           <tr class="text-sm text-gray-700 border-b">
-            <th class="p-2">Name</th>
+            <th class="p-2">Person</th>
             <th class="p-2">Location</th>
             <th class="p-2">Time</th>
             <th class="p-2">Image</th>
           </tr>
         </thead>
         <tbody>
-          {% for sighting in recent_sightings %}
+          {% for detection in recent_sightings %}
           <tr class="border-b hover:bg-gray-50">
-            <td class="p-2">{{ sighting.criminal.full_name }}</td>
-            <td class="p-2">{{ sighting.spotted_address }}</td>
-            <td class="p-2">{{ sighting.timestamp|date:"M d, Y H:i" }}</td>
+            <td class="p-2">{{ detection.detected_name|default:"Unknown Person" }}</td>
+            <td class="p-2">{{ detection.detection_address }}</td>
+            <td class="p-2">{{ detection.timestamp|date:"M d, Y H:i" }}</td>
             <td class="p-2">
-              {% if sighting.image_captured %}
-                <img src="{{ sighting.image_captured.url }}" class="w-10 h-10 rounded-full object-cover">
+              {% if detection.image_captured %}
+                <img src="{{ detection.image_captured.url }}" class="w-10 h-10 rounded-full object-cover">
               {% else %}
                 N/A
               {% endif %}
@@ -96,12 +204,90 @@
     data: {
       labels: {{ sightings_dates|safe }},
       datasets: [{
-        label: 'Sightings',
+        label: 'Detections',
         data: {{ sightings_counts|safe }},
         backgroundColor: '#3b82f6',
       }]
     }
   });
+
+  // Access Points Chart
+  const accessPointsCtx = document.getElementById('accessPointsChart');
+  if (accessPointsCtx) {
+    const accessPointsData = {{ access_point_trends|safe }};
+    const accessPointsChart = new Chart(accessPointsCtx, {
+      type: 'doughnut',
+      data: {
+        labels: accessPointsData.map(item => item.access_attempted || 'Unknown'),
+        datasets: [{
+          label: 'Access Attempts',
+          data: accessPointsData.map(item => item.count),
+          backgroundColor: ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6'],
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: {
+            position: 'bottom',
+          }
+        }
+      }
+    });
+  }
+
+  // Confidence Distribution Chart
+  const confidenceCtx = document.getElementById('confidenceChart');
+  if (confidenceCtx) {
+    const confidenceData = {{ confidence_data|safe }};
+    const confidenceChart = new Chart(confidenceCtx, {
+      type: 'bar',
+      data: {
+        labels: confidenceData.map(item => item.label),
+        datasets: [{
+          label: 'Detections',
+          data: confidenceData.map(item => item.count),
+          backgroundColor: confidenceData.map(item => item.color),
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: {
+            beginAtZero: true
+          }
+        }
+      }
+    });
+  }
+
+  // Weekly Trends Chart
+  const weeklyCtx = document.getElementById('weeklyTrendsChart');
+  if (weeklyCtx) {
+    const weeklyData = {{ weekly_trends|safe }};
+    const weeklyTrendsChart = new Chart(weeklyCtx, {
+      type: 'line',
+      data: {
+        labels: weeklyData.map(item => item.week),
+        datasets: [{
+          label: 'Weekly Detections',
+          data: weeklyData.map(item => item.count),
+          borderColor: '#ef4444',
+          backgroundColor: 'rgba(239, 68, 68, 0.1)',
+          tension: 0.4,
+          fill: true
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: {
+            beginAtZero: true
+          }
+        }
+      }
+    });
+  }
 </script>
 
 <style>
@@ -123,6 +309,7 @@
     animation: fade-up 1s ease forwards;
   }
 
+  .delay-100 { animation-delay: 0.1s; }
   .delay-200 { animation-delay: 0.2s; }
   .delay-300 { animation-delay: 0.3s; }
   .delay-400 { animation-delay: 0.4s; }
