@@ -64,9 +64,7 @@
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
               <div class="flex space-x-1">
-                {% if recipient.alert_for_wanted %}<span class="bg-red-100 text-red-800 text-xs px-2 py-1 rounded">Wanted</span>{% endif %}
-                {% if recipient.alert_for_investigation %}<span class="bg-orange-100 text-orange-800 text-xs px-2 py-1 rounded">Investigation</span>{% endif %}
-                {% if recipient.alert_for_escaped %}<span class="bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded">Escaped</span>{% endif %}
+                {% if recipient.alert_for_unauthorized %}<span class="bg-red-100 text-red-800 text-xs px-2 py-1 rounded">Unauthorized Access</span>{% endif %}
               </div>
             </td>
             <td class="px-6 py-4 whitespace-nowrap">
@@ -153,21 +151,9 @@
         <label class="block text-gray-700 font-medium mb-2">Alert Preferences</label>
         <div class="space-y-2">
           <label class="flex items-center">
-            <input type="checkbox" name="alert_for_wanted" id="alertWanted" checked
+            <input type="checkbox" name="alert_for_unauthorized" id="alertUnauthorized" checked
                    class="form-checkbox h-4 w-4 text-blue-600">
-            <span class="ml-2 text-gray-700">Wanted Criminals</span>
-          </label>
-          
-          <label class="flex items-center">
-            <input type="checkbox" name="alert_for_investigation" id="alertInvestigation" checked
-                   class="form-checkbox h-4 w-4 text-blue-600">
-            <span class="ml-2 text-gray-700">Under Investigation</span>
-          </label>
-          
-          <label class="flex items-center">
-            <input type="checkbox" name="alert_for_escaped" id="alertEscaped" checked
-                   class="form-checkbox h-4 w-4 text-blue-600">
-            <span class="ml-2 text-gray-700">Escaped Criminals</span>
+            <span class="ml-2 text-gray-700">Unauthorized Access</span>
           </label>
         </div>
       </div>
@@ -213,9 +199,7 @@ function openAddRecipientModal() {
     document.getElementById('submitButtonText').textContent = 'Add Recipient';
     document.getElementById('recipientForm').reset();
     document.getElementById('recipientId').value = '';
-    document.getElementById('alertWanted').checked = true;
-    document.getElementById('alertInvestigation').checked = true;
-    document.getElementById('alertEscaped').checked = true;
+    document.getElementById('alertUnauthorized').checked = true;
     document.getElementById('recipientActive').checked = true;
     document.getElementById('recipientModal').classList.remove('hidden');
 }
