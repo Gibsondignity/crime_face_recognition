@@ -9,23 +9,26 @@ urlpatterns = [
     path('', views.login_view, name='login'),
     path('dashboard', views.dashboard, name='dashboard'),
 
-    path('add_criminal', views.add_criminal, name='add_criminal'),
-    path('save_criminal', views.save_criminal, name='save_criminal'),
-    path('view_criminals', views.view_criminals, name='view_criminals'),
-    path('change_status', views.change_criminal_status, name='change_criminal_status'),
+    path('add_user', views.add_user, name='add_user'),
+    path('save_user', views.save_user, name='save_user'),
+    path('view_users', views.view_users, name='view_users'),
+    path('change_user_status', views.change_user_status, name='change_user_status'),
     
     path('logout', views.logOut),
 
-    path('identify_criminal', views.identify_criminal, name='identify_criminal'),
+    path('detect_unauthorized', views.detect_unauthorized, name='detect_unauthorized'),
     path('detect_image', views.detect_image, name='detect_image'),
     path('detect_with_webcam', views.detect_with_webcam, name='detect_with_webcam'),
     path('webcam_stream', views.webcam_stream, name='webcam_stream'),
-    path('video_feed', views.video_feed, name='video_feed'),
     path('stop_webcam', views.stop_webcam, name='stop_webcam'),
     path('upload', FileView.as_view(), name='file-upload'),
 
-    path('spotted_criminal', views.spotted_criminal, name='spotted_criminal'),
-    path('found_criminal/<int:thief_id>/', views.found_criminal, name='found_criminal'),
+    path('spotted_unauthorized', views.spotted_unauthorized, name='spotted_unauthorized'),
+    path('mark_detection_handled/<int:detection_id>/', views.mark_detection_handled, name='mark_detection_handled'),
+    path('test_detection', views.test_detection_system, name='test_detection_system'),
+    path('api/recent_detections', views.get_recent_detections, name='get_recent_detections'),
+    path('api/process_frame', views.process_frame, name='process_frame'),
+
     
     # SMS Configuration URLs
     path('sms_config', views.sms_configuration, name='sms_configuration'),
